@@ -1,0 +1,12 @@
+{
+  "name": "@kan/web-core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./persistence": "./src/persistence.mjs",
+    "./hash": "./src/hash.mjs"
+  },
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.mjs"
+  }
+}

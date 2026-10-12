@@ -1,0 +1,100 @@
+@import "../../desktop/src/styles.css";
+@source '../../desktop/src';
+body {
+  margin: 0;
+}
+.web-shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.web-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.web-header strong {
+  margin-right: auto;
+}
+.web-catalog {
+  max-width: 960px;
+  width: 100%;
+  margin: 40px auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow: auto;
+}
+.web-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.web-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.web-card strong {
+  margin-right: auto;
+}
+.web-body {
+  flex: 1;
+  min-height: 0;
+}
+.web-chat {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+.web-history {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.web-entry {
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--muted);
+  white-space: pre-wrap;
+}
+.canvas-sync {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  background: var(--surface);
+  padding: 4px;
+  pointer-events: none;
+  font-size: 12px;
+}
+.canvas-selection {
+  position: absolute;
+  bottom: 68px;
+  right: 12px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+@media (max-width: 700px) {
+  .web-header {
+    padding: 8px;
+  }
+  .web-chat {
+    padding: 8px;
+  }
+}

@@ -1,0 +1,11 @@
+// Historical corrected-calendar NEW REQUEST check. This is not retry API coverage.
+import {readFile,writeFile} from 'node:fs/promises';import {randomUUID} from 'node:crypto';import assert from 'node:assert/strict';import {Client} from 'eve/client';
+const f=JSON.parse(await readFile('/tmp/kan-web-acceptance-fixture.json','utf8')),c=JSON.parse(await readFile('/tmp/kan-staging-private.json','utf8')),origin='https://staging.getkan.dev';
+async function api(path,input){const r=await fetch(`${origin}/api/web/${path}`,{method:input?'POST':'GET',headers:{cookie:f.accounts[0].cookie,origin,'content-type':'application/json'},...(input?{body:JSON.stringify(input)}:{})});assert.equal(r.status,200);return r.json();}
+const run=await api('chat',{canvas:f.canvas,message:'Read the canvas and add exactly one calendar titled QA queued calendar fixed with events [] at x 1800 y 350. Use addNode input.draft and input.at, with expectedRevision from getCanvas. Preserve existing shapes.',operation:randomUUID()});
+const end=Date.now()+180000;let final;
+while(Date.now()<end){final=(await api(`history?canvas=${f.canvas}`)).runs.find(r=>r.id===run.id);if(['complete','failed','paused'].includes(final.status))break;await new Promise(r=>setTimeout(r,1000));}
+assert.equal(final.status,'complete');
+const state=await(await fetch('https://kan-staging-realtime.clipdoc.workers.dev/tool',{method:'POST',headers:{authorization:`Bearer ${c.secret}`,'content-type':'application/json'},body:JSON.stringify({canvas:f.canvas,user:f.accounts[0].id,name:'getCanvas',input:{scope:'full'}})})).json();assert.equal(state.shapes.filter(s=>s.props.title==='QA queued calendar fixed').length,1);assert.equal(state.shapes.some(s=>s.props.title==='QA must not commit'),false);
+const snap=await new Client({host:origin,auth:{bearer:c.secret},redirect:'manual'}).sessions.attach(final.session_id).snapshot();const cost=snap.events.filter(e=>e.type==='step.completed').reduce((sum,e)=>sum+(e.data.usage?.costUsd||0),0);
+const result={run:run.id,checks:['calendar mutation after fractional-index fix','exactly one saved calendar','cancelled mutation remains absent'],costUsd:cost,revision:state.revision};await writeFile('/tmp/kan-web-agent-retry-results.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));

@@ -1,0 +1,12 @@
+{
+  "name": "@kan/web-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "eve build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "eve": "0.71.0"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@kan/realtime",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run",
+    "deploy:staging": "wrangler deploy"
+  },
+  "dependencies": {
+    "@kan/web-core": "*",
+    "@tldraw/sync-core": "5.4.2",
+    "@tldraw/tlschema": "5.4.2"
+  }
+}

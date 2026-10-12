@@ -1,0 +1,29 @@
+name: Web migration checks
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "apps/web-agent/**"
+      - "apps/realtime/**"
+      - "packages/**"
+      - "package*.json"
+      - ".github/workflows/web.yml"
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck:web
+      - run: npm run typecheck -w @kan/web-agent
+      - run: npm run typecheck -w @kan/desktop
+      - run: npm run test:web
+      - run: npm run test:desktop
+      - run: npm run build:web
+      - run: npm run check:web-bundle
+      - run: npm run build -w @kan/realtime
+      - run: npm run build -w @kan/web-agent

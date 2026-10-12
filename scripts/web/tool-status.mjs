@@ -1,0 +1,4 @@
+import {readFile} from 'node:fs/promises';import {Client} from 'eve/client';
+const f=JSON.parse(await readFile('/tmp/kan-web-acceptance-fixture.json','utf8')),c=JSON.parse(await readFile('/tmp/kan-staging-private.json','utf8'));
+const history=await(await fetch(`https://staging.getkan.dev/api/web/history?canvas=${f.canvas}`,{headers:{cookie:f.accounts[0].cookie}})).json();const client=new Client({host:'https://staging.getkan.dev',auth:{bearer:c.secret},redirect:'manual'});
+for(const run of history.runs){const snap=await client.sessions.attach(run.session_id).snapshot();console.log(JSON.stringify({id:run.id,toolEvents:snap.events.filter(e=>e.type==='action.result').map(e=>({keys:Object.keys(e.data),name:e.data.name,result:e.data.result,error:e.data.error})),replies:snap.events.filter(e=>e.type==='message.completed').map(e=>e.data.message)}));}

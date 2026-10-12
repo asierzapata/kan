@@ -33,3 +33,26 @@ dist-ssr
 *.db-shm
 *.db-wal
 /qa_bugs/
+
+# Disposable migration spike runtime/build artifacts
+/spikes/m0/eve/.eve/
+/spikes/m0/eve/.output/
+/spikes/m0/eve/.nitro/
+/spikes/m0/eve/.vercel/
+/spikes/m0/cloudflare/.wrangler/
+/spikes/m0/browser/node_modules/
+/spikes/m0/start/.vercel/
+/spikes/m0/start/.output/
+/spikes/m0/start/.tanstack/
+/spikes/m0/start/node_modules/
+/spikes/m0/start/src/routeTree.gen.ts
+
+# Maintained web build/runtime artifacts
+/apps/web/.vercel/
+/apps/web/.output/
+/apps/web/.tanstack/
+/apps/realtime/.wrangler/
+/apps/web-agent/.eve/
+/apps/web-agent/.output/
+/apps/web-agent/.nitro/
+/apps/web-agent/.vercel/

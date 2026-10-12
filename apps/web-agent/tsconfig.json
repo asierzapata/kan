@@ -1,0 +1,1 @@
+{"compilerOptions":{"target":"esnext","module":"esnext","moduleResolution":"bundler","strict":true,"noEmit":true,"skipLibCheck":true,"esModuleInterop":true,"types":["node","eve/workflow-modules"]},"include":["agent/**/*.ts"]}

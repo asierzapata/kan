@@ -2,6 +2,7 @@ import { Client } from "eve/client";
 import { randomUUID } from "node:crypto";
 import { hash } from "@kan/web-core/hash";
 import { canvasAccess, HttpError, text } from "./access";
+import { scheduleContextRun } from "./meeting";
 export function agentClient() {
   return new Client({
     host: process.env.EVE_INTERNAL_URL!,
@@ -82,6 +83,7 @@ export async function dispatch(
   db: any,
   canvas: string,
   client = agentClient(),
+  clock: () => number = Date.now,
 ) {
   // SQL advisory lock serializes the entire canvas queue across Vercel instances.
   return db
@@ -106,8 +108,24 @@ export async function dispatch(
             event.data.finishReason !== "tool-calls"
           )
             await tx.query(
-              "INSERT INTO web_messages(id,thread,run,role,content) VALUES($1,$2,$3,'assistant',$4) ON CONFLICT DO NOTHING",
-              [event.meta.id, active.thread, active.id, event.data.message],
+              "INSERT INTO web_messages(id,thread,run,role,content,evidence) VALUES($1,$2,$3,'assistant',$4,$5) ON CONFLICT DO NOTHING",
+              [
+                event.meta.id,
+                active.thread,
+                active.id,
+                event.data.message,
+                JSON.stringify(
+                  active.kind === "context"
+                    ? [
+                        {
+                          session: active.meeting_session,
+                          from: active.context_from,
+                          to: active.context_to,
+                        },
+                      ]
+                    : [],
+                ),
+              ],
             );
         let status = events.some((e: any) => e.type === "turn.cancelled")
           ? "cancelled"
@@ -141,13 +159,14 @@ export async function dispatch(
           status,
         ]);
       }
+      const context = await scheduleContextRun(tx, canvas, clock);
       const run = (
         await tx.query(
-          "SELECT r.* FROM web_runs r JOIN web_threads t ON t.id=r.thread WHERE t.canvas=$1 AND r.status='queued' ORDER BY r.created_at,r.id LIMIT 1 FOR UPDATE OF r",
+          "SELECT r.* FROM web_runs r JOIN web_threads t ON t.id=r.thread WHERE t.canvas=$1 AND r.status='queued' ORDER BY (r.kind='request') DESC,r.created_at,r.id LIMIT 1 FOR UPDATE OF r",
           [canvas],
         )
       ).rows[0];
-      if (!run) return { pending: false };
+      if (!run) return { pending: context.waiting };
       try {
         await canvasAccess(tx, canvas, run.user_id, "editor");
         if (run.auth_session_id) {
@@ -227,4 +246,77 @@ export async function retryRun(
     [run.id, authSessionId],
   );
   return { queued: true };
+}
+
+async function workerTool(body: any) {
+  const response = await fetch(`${process.env.STAGING_WORKER_URL}/tool`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${process.env.STAGING_SECRET}`,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!response.ok) throw new HttpError(409, "Undo could not be applied");
+  return response.json();
+}
+export async function revertRun(
+  tx: any,
+  canvas: string,
+  user: string,
+  runId: string,
+  callWorker: (body: any) => Promise<any> = workerTool,
+) {
+  await canvasAccess(tx, canvas, user, "editor");
+  const run = (
+    await tx.query(
+      "SELECT r.* FROM web_runs r JOIN web_threads t ON t.id=r.thread WHERE r.id=$1 AND t.canvas=$2 FOR UPDATE OF r",
+      [runId, canvas],
+    )
+  ).rows[0];
+  if (!run) throw new HttpError(404, "Run unavailable");
+  if (!["complete", "failed", "cancelled"].includes(run.status))
+    throw new HttpError(409, "Only finished turns can be reverted");
+  if (run.reverted_at) throw new HttpError(409, "This turn was already reverted");
+  const events = (
+    await tx.query(
+      "SELECT changes FROM web_events WHERE room=$1 AND operation LIKE $2 ORDER BY revision",
+      [canvas, `${run.id}:%`],
+    )
+  ).rows;
+  const created = new Map<string, any>(),
+    updated = new Set<string>();
+  for (const { changes } of events) {
+    for (const doc of changes.puts) {
+      const id = doc.state.id;
+      if (id.startsWith(`shape:${run.id}:`) || id.startsWith(`binding:${run.id}:`))
+        created.set(id, doc);
+      else updated.add(id);
+    }
+    for (const id of changes.removes) created.delete(id);
+  }
+  const candidates = [...created.values()].map((doc) => ({
+    id: doc.state.id,
+    hash: hash(doc),
+    stateHash: hash(doc.state),
+  }));
+  const outcome = candidates.length
+    ? await callWorker({
+        canvas,
+        user,
+        run: run.id,
+        operation: `revert:${run.id}:${randomUUID()}`,
+        name: "revertRun",
+        input: { candidates },
+      })
+    : { removed: [], kept: [], revision: null };
+  await tx.query("UPDATE web_runs SET reverted_at=now() WHERE id=$1", [run.id]);
+  return {
+    removed: outcome.removed,
+    kept: outcome.kept,
+    skippedUpdates: [...updated],
+    revision: outcome.revision,
+  };
 }

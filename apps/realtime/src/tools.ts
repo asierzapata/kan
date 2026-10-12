@@ -5,6 +5,8 @@ import {
 } from "../../../apps/desktop/src/nodes/draft";
 import { getIndexAbove } from "@tldraw/utils";
 import { toRichText } from "@tldraw/tlschema";
+import { z } from "zod";
+import { hash } from "@kan/web-core/hash";
 
 // Read the validated JSON rich-text tree without loading browser editor code.
 function toPlainText(node: any): string {
@@ -399,5 +401,54 @@ export function planTool(room: any, schema: any, command: any) {
       shapeIds: puts.filter((r) => r.typeName === "shape").map((r) => r.id),
       removed: removes,
     },
+  };
+}
+
+export const revertCandidates = z
+  .array(
+    z.object({
+      id: z.string().min(1).max(200),
+      hash: z.string().length(64),
+      stateHash: z.string().length(64).optional(),
+    }),
+  )
+  .max(500);
+// Removes only records whose live document still matches what the run committed.
+// A record is kept when it is missing, was modified, or something not owned by
+// the run depends on it, so human work attached to agent nodes is never cascaded away.
+export function planRevert(room: any, candidates: unknown) {
+  const parsed = revertCandidates.parse(candidates);
+  const docs: any[] = room.getCurrentSnapshot().documents;
+  const live = new Map<string, any>(docs.map((doc) => [doc.state.id, doc]));
+  const removable = new Set<string>(),
+    kept: string[] = [];
+  for (const candidate of parsed) {
+    const doc = live.get(candidate.id);
+    if (
+      doc &&
+      (hash(doc) === candidate.hash ||
+        (candidate.stateHash && hash(doc.state) === candidate.stateHash))
+    )
+      removable.add(candidate.id);
+    else kept.push(candidate.id);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const { state } of docs) {
+      if (removable.has(state.id)) continue;
+      for (const ref of [state.parentId, state.fromId, state.toId])
+        if (ref && removable.has(ref)) {
+          removable.delete(ref);
+          kept.push(ref);
+          changed = true;
+        }
+    }
+  }
+  const removes = [...removable];
+  return {
+    result: { removed: removes, kept },
+    puts: [] as any[],
+    removes,
   };
 }

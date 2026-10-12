@@ -53,8 +53,20 @@ async function api(path: string, input?: any) {
   if (!response.ok) throw Error(data.error);
   return data;
 }
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
 function WebApp() {
   const { user, loading, signOut } = useAuth();
+  const narrow = useMediaQuery("(max-width: 720px)");
   const [mounted, setMounted] = useState(false),
     [catalog, setCatalog] = useState<any>({ workspaces: [], canvases: [] }),
     [workspace, setWorkspace] = useState(""),
@@ -73,6 +85,9 @@ function WebApp() {
     [message, setMessage] = useState(""),
     [anchors, setAnchors] = useState<string[]>([]),
     [chatOpen, setChatOpen] = useState(true),
+    [meeting, setMeeting] = useState<any>(emptyMeeting),
+    [meetingOpen, setMeetingOpen] = useState(false),
+    [notice, setNotice] = useState(""),
     [live, setLive] = useState(""),
     [toolState, setToolState] = useState("");
   const [members, setMembers] = useState<any[]>([]);
@@ -108,11 +123,19 @@ function WebApp() {
     let stopped = false;
     let first = true;
     setHistory({ messages: [], runs: [], threads: [] });
+    setMeeting(emptyMeeting);
+    setNotice("");
+    setMeetingOpen(
+      sessionStorage.getItem(`kan-meeting-open:${user.id}:${canvas}`) === "1",
+    );
     setThread("");
     setAnchors([]);
     const tick = async () => {
       try {
-        const data = await api(`history?canvas=${canvas}`);
+        const [data, meetingData] = await Promise.all([
+          api(`history?canvas=${canvas}`),
+          api(`meeting?canvas=${canvas}`),
+        ]);
         if (stopped) return;
         if (first) {
           first = false;
@@ -120,6 +143,7 @@ function WebApp() {
           setThread(saved === "" ? "" : data.threads.find((t: any) => t.id === saved)?.id || data.threads.at(-1)?.id || "");
         }
         setHistory(data);
+        setMeeting(meetingData);
       } catch (e) {
         if (!stopped) setError(String(e));
       }
@@ -208,6 +232,32 @@ function WebApp() {
       setMessage("");
     }
   }, [draftKey]);
+  const revealSegments = (session: string, from: number, to = from) => {
+    setMeetingOpen(true);
+    if (user)
+      sessionStorage.setItem(`kan-meeting-open:${user.id}:${canvas}`, "1");
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`segment-${session}-${from}`)
+        ?.scrollIntoView({ block: "center" });
+      const marked: Element[] = [];
+      for (let seq = from; seq <= to; seq++) {
+        const item = document.getElementById(`segment-${session}-${seq}`);
+        if (item) {
+          item.classList.add("web-highlight");
+          marked.push(item);
+        }
+      }
+      setTimeout(
+        () => marked.forEach((item) => item.classList.remove("web-highlight")),
+        2000,
+      );
+    });
+  };
+  const activeMeeting =
+    meeting.session && meeting.session.status !== "ended"
+      ? meeting.session
+      : null;
   const current = catalog.workspaces.find((w: any) => w.id === workspace),
     selected = catalog.canvases.find((c: any) => c.id === canvas),
     writable = selected?.role !== "viewer";
@@ -228,6 +278,316 @@ function WebApp() {
         </a>
       </main>
     );
+  const canvasView = (
+      <Suspense fallback={<p>Loading canvas…</p>}>
+        <Canvas
+          key={canvas}
+          canvas={canvas}
+          onSelection={setAnchors}
+          onAccessLost={() => {
+            setCanvas("");
+            setError(
+              "Canvas access expired. Sign in or contact your workspace owner.",
+            );
+          }}
+        />
+      </Suspense>
+  );
+  const chat = (
+  <section className="web-chat" aria-label="Chat">
+    <div className="web-row">
+      <h2>Ask Kan</h2>
+      <select
+        aria-label="Thread"
+        value={thread}
+        onChange={(e) => {
+          setThread(e.target.value);
+          sessionStorage.setItem(`kan-thread:${user.id}:${canvas}`, e.target.value);
+        }}
+      >
+        <option value="">New thread</option>
+        {history.threads.map((t: any) => (
+          <option value={t.id} key={t.id}>
+            {t.title}
+          </option>
+        ))}
+      </select>
+    </div>
+    <MeetingPanel
+      meeting={meeting}
+      writable={writable}
+      open={meetingOpen}
+      onOpenChange={(open: boolean) => {
+        setMeetingOpen(open);
+        sessionStorage.setItem(
+          `kan-meeting-open:${user.id}:${canvas}`,
+          open ? "1" : "0",
+        );
+      }}
+      canvas={canvas}
+      act={act}
+      onRefresh={async () =>
+        setMeeting(await api(`meeting?canvas=${canvas}`))
+      }
+      onStarted={(started: any) => {
+        setThread(started.thread);
+        sessionStorage.setItem(
+          `kan-thread:${user.id}:${canvas}`,
+          started.thread,
+        );
+      }}
+    />
+    <MessageScrollerProvider>
+      <MessageScroller>
+        <MessageScrollerViewport>
+          <MessageScrollerContent role="log">
+            {history.messages
+              .filter((m: any) => m.thread === thread)
+              .map((m: any) =>
+                m.role === "context" ? (
+                  <MessageScrollerItem key={m.id} messageId={m.id}>
+                    <p className="web-context-note" role="note">
+                      Meeting context {m.evidence?.[0]?.from}–
+                      {m.evidence?.[0]?.to}{" "}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          m.evidence?.[0] &&
+                          revealSegments(
+                            m.evidence[0].session,
+                            m.evidence[0].from,
+                            m.evidence[0].to,
+                          )
+                        }
+                      >
+                        Show transcript
+                      </Button>
+                    </p>
+                  </MessageScrollerItem>
+                ) : (
+                <MessageScrollerItem
+                  key={m.id}
+                  messageId={m.id}
+                  scrollAnchor={m.role === "user"}
+                >
+                  <Message
+                    align={m.role === "user" ? "end" : "start"}
+                  >
+                    <MessageContent>
+                      <MessageHeader>{m.role}</MessageHeader>
+                      <Bubble
+                        variant={
+                          m.role === "user" ? "tinted" : "agent"
+                        }
+                      >
+                        <BubbleContent>
+                          <p>{m.content}</p>
+                          {m.anchors?.map((id: string) => (
+                            <Button
+                              key={id}
+                              variant="ghost"
+                              onClick={() => {
+                                const editor = (window as any)
+                                  .__kanWeb?.editor;
+                                if (editor?.getShape(id)) {
+                                  editor.select(id);
+                                  editor.zoomToSelection();
+                                }
+                              }}
+                            >
+                              Node {id.slice(0, 20)}
+                            </Button>
+                          ))}
+                        </BubbleContent>
+                      </Bubble>
+                      {m.evidence?.[0] && (
+                        <Button
+                          variant="ghost"
+                          onClick={() =>
+                            revealSegments(
+                              m.evidence[0].session,
+                              m.evidence[0].from,
+                              m.evidence[0].to,
+                            )
+                          }
+                        >
+                          Based on transcript {m.evidence[0].from}
+                          –{m.evidence[0].to}
+                        </Button>
+                      )}
+                    </MessageContent>
+                  </Message>
+                </MessageScrollerItem>
+                ),
+              )}
+            {live && (
+              <MessageScrollerItem messageId="streaming">
+                <Message>
+                  <MessageContent>
+                    <Bubble variant="agent">
+                      <BubbleContent>{live}</BubbleContent>
+                    </Bubble>
+                  </MessageContent>
+                </Message>
+              </MessageScrollerItem>
+            )}
+            {toolState && (
+              <MessageScrollerItem messageId="tool-state">
+                <p role="status">{toolState}</p>
+              </MessageScrollerItem>
+            )}
+            {history.runs
+              .filter((r: any) => r.thread === thread)
+              .map((r: any) => (
+                <MessageScrollerItem
+                  key={r.id}
+                  messageId={r.id + "-status"}
+                >
+                  <div className="web-row">
+                    {r.kind === "context" && (
+                      <Badge variant="secondary">auto</Badge>
+                    )}
+                    <Badge>{r.status}</Badge>
+                    {r.reverted_at && <Badge variant="secondary">reverted</Badge>}
+                    {["complete", "failed", "cancelled"].includes(r.status) &&
+                      writable &&
+                      !r.reverted_at && (
+                        <Button
+                          variant="ghost"
+                          onClick={() =>
+                            void act(async () => {
+                              const result = await api("run/revert", { canvas, run: r.id });
+                              setNotice(
+                                `Undo: removed ${result.removed.length}, kept ${result.kept.length} human-edited`,
+                              );
+                            })
+                          }
+                        >
+                          Undo
+                        </Button>
+                      )}
+                    {["failed", "denied"].includes(r.status) &&
+                      r.user_id === user.id &&
+                      writable && (
+                        <Button
+                          variant="ghost"
+                          onClick={() =>
+                            void act(() =>
+                              api("retry", { canvas, run: r.id }),
+                            )
+                          }
+                        >
+                          Retry
+                        </Button>
+                      )}
+                    {[
+                      "queued",
+                      "running",
+                      "dispatching",
+                    ].includes(r.status) &&
+                      writable && (
+                        <Button
+                          variant="ghost"
+                          onClick={() =>
+                            void act(() =>
+                              api("cancel", {
+                                canvas,
+                                run: r.id,
+                              }),
+                            )
+                          }
+                        >
+                          Cancel
+                        </Button>
+                      )}
+                  </div>
+                </MessageScrollerItem>
+              ))}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+      </MessageScroller>
+    </MessageScrollerProvider>
+    {notice && <p role="status">{notice}</p>}
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (submitting) return;
+        const key = JSON.stringify({
+          canvas,
+          thread,
+          message,
+          anchors,
+        });
+        if (submittedOperation.current?.key !== key)
+          submittedOperation.current = {
+            key,
+            id: crypto.randomUUID(),
+          };
+        if (draftKey)
+          sessionStorage.setItem(
+            draftKey,
+            JSON.stringify({
+              message,
+              anchors,
+              operation: submittedOperation.current!.id,
+            }),
+          );
+        setSubmitting(true);
+        void act(async () => {
+          try {
+            const result = await api("chat", {
+              canvas,
+              thread: thread || undefined,
+              message,
+              anchors,
+              operation: submittedOperation.current!.id,
+            });
+            setThread(result.thread);
+            sessionStorage.setItem(`kan-thread:${user.id}:${canvas}`, result.thread);
+            setMessage("");
+            if (draftKey) sessionStorage.removeItem(draftKey);
+            submittedOperation.current = null;
+          } finally {
+            setSubmitting(false);
+          }
+        });
+      }}
+    >
+      <Field>
+        <FieldLabel htmlFor="prompt">
+          Message{" "}
+          {anchors.length
+            ? `· ${anchors.length} anchored nodes`
+            : ""}
+        </FieldLabel>
+        <Textarea
+          id="prompt"
+          value={message}
+          onChange={(e) => {
+            setMessage(e.target.value);
+            if (draftKey)
+              sessionStorage.setItem(
+                draftKey,
+                JSON.stringify({
+                  message: e.target.value,
+                  anchors,
+                }),
+              );
+          }}
+          maxLength={4000}
+          disabled={!writable}
+        />
+      </Field>
+      <Button
+        disabled={submitting || !writable || !message.trim()}
+        type="submit"
+      >
+        Send
+      </Button>
+    </form>
+  </section>
+  );
   return (
     <main className="web-shell">
       <header className="web-header">
@@ -247,8 +607,9 @@ function WebApp() {
               Canvases
             </Button>
             <span>{selected?.name}</span>
+            {activeMeeting && <Badge>Meeting · {activeMeeting.status}</Badge>}
             <Button variant="outline" onClick={() => setChatOpen(!chatOpen)}>
-              Chat
+              {narrow && chatOpen ? "Canvas" : "Chat"}
             </Button>
           </>
         )}
@@ -515,241 +876,213 @@ function WebApp() {
           </Button>
         </section>
       ) : (
-        <div className="web-body">
-          {mounted && (
-            <WorkspacePanels
-              chatOpen={chatOpen}
-              canvas={
-                <Suspense fallback={<p>Loading canvas…</p>}>
-                  <Canvas
-                    key={canvas}
-                    canvas={canvas}
-                    onSelection={setAnchors}
-                    onAccessLost={() => {
-                      setCanvas("");
-                      setError(
-                        "Canvas access expired. Sign in or contact your workspace owner.",
-                      );
-                    }}
-                  />
-                </Suspense>
-              }
-              chat={
-                <section className="web-chat" aria-label="Chat">
-                  <div className="web-row">
-                    <h2>Ask Kan</h2>
-                    <select
-                      aria-label="Thread"
-                      value={thread}
-                      onChange={(e) => {
-                        setThread(e.target.value);
-                        sessionStorage.setItem(`kan-thread:${user.id}:${canvas}`, e.target.value);
-                      }}
-                    >
-                      <option value="">New thread</option>
-                      {history.threads.map((t: any) => (
-                        <option value={t.id} key={t.id}>
-                          {t.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <MessageScrollerProvider>
-                    <MessageScroller>
-                      <MessageScrollerViewport>
-                        <MessageScrollerContent role="log">
-                          {history.messages
-                            .filter((m: any) => m.thread === thread)
-                            .map((m: any) => (
-                              <MessageScrollerItem
-                                key={m.id}
-                                messageId={m.id}
-                                scrollAnchor={m.role === "user"}
-                              >
-                                <Message
-                                  align={m.role === "user" ? "end" : "start"}
-                                >
-                                  <MessageContent>
-                                    <MessageHeader>{m.role}</MessageHeader>
-                                    <Bubble
-                                      variant={
-                                        m.role === "user" ? "tinted" : "agent"
-                                      }
-                                    >
-                                      <BubbleContent>
-                                        <p>{m.content}</p>
-                                        {m.anchors?.map((id: string) => (
-                                          <Button
-                                            key={id}
-                                            variant="ghost"
-                                            onClick={() => {
-                                              const editor = (window as any)
-                                                .__kanWeb?.editor;
-                                              if (editor?.getShape(id)) {
-                                                editor.select(id);
-                                                editor.zoomToSelection();
-                                              }
-                                            }}
-                                          >
-                                            Node {id.slice(0, 20)}
-                                          </Button>
-                                        ))}
-                                      </BubbleContent>
-                                    </Bubble>
-                                  </MessageContent>
-                                </Message>
-                              </MessageScrollerItem>
-                            ))}
-                          {live && (
-                            <MessageScrollerItem messageId="streaming">
-                              <Message>
-                                <MessageContent>
-                                  <Bubble variant="agent">
-                                    <BubbleContent>{live}</BubbleContent>
-                                  </Bubble>
-                                </MessageContent>
-                              </Message>
-                            </MessageScrollerItem>
-                          )}
-                          {toolState && (
-                            <MessageScrollerItem messageId="tool-state">
-                              <p role="status">{toolState}</p>
-                            </MessageScrollerItem>
-                          )}
-                          {history.runs
-                            .filter((r: any) => r.thread === thread)
-                            .map((r: any) => (
-                              <MessageScrollerItem
-                                key={r.id}
-                                messageId={r.id + "-status"}
-                              >
-                                <div className="web-row">
-                                  <Badge>{r.status}</Badge>
-                                  {["failed", "denied"].includes(r.status) &&
-                                    r.user_id === user.id &&
-                                    writable && (
-                                      <Button
-                                        variant="ghost"
-                                        onClick={() =>
-                                          void act(() =>
-                                            api("retry", { canvas, run: r.id }),
-                                          )
-                                        }
-                                      >
-                                        Retry
-                                      </Button>
-                                    )}
-                                  {[
-                                    "queued",
-                                    "running",
-                                    "dispatching",
-                                  ].includes(r.status) &&
-                                    writable && (
-                                      <Button
-                                        variant="ghost"
-                                        onClick={() =>
-                                          void act(() =>
-                                            api("cancel", {
-                                              canvas,
-                                              run: r.id,
-                                            }),
-                                          )
-                                        }
-                                      >
-                                        Cancel
-                                      </Button>
-                                    )}
-                                </div>
-                              </MessageScrollerItem>
-                            ))}
-                        </MessageScrollerContent>
-                      </MessageScrollerViewport>
-                    </MessageScroller>
-                  </MessageScrollerProvider>
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (submitting) return;
-                      const key = JSON.stringify({
-                        canvas,
-                        thread,
-                        message,
-                        anchors,
-                      });
-                      if (submittedOperation.current?.key !== key)
-                        submittedOperation.current = {
-                          key,
-                          id: crypto.randomUUID(),
-                        };
-                      if (draftKey)
-                        sessionStorage.setItem(
-                          draftKey,
-                          JSON.stringify({
-                            message,
-                            anchors,
-                            operation: submittedOperation.current!.id,
-                          }),
-                        );
-                      setSubmitting(true);
-                      void act(async () => {
-                        try {
-                          const result = await api("chat", {
-                            canvas,
-                            thread: thread || undefined,
-                            message,
-                            anchors,
-                            operation: submittedOperation.current!.id,
-                          });
-                          setThread(result.thread);
-                          sessionStorage.setItem(`kan-thread:${user.id}:${canvas}`, result.thread);
-                          setMessage("");
-                          if (draftKey) sessionStorage.removeItem(draftKey);
-                          submittedOperation.current = null;
-                        } finally {
-                          setSubmitting(false);
-                        }
-                      });
-                    }}
-                  >
-                    <Field>
-                      <FieldLabel htmlFor="prompt">
-                        Message{" "}
-                        {anchors.length
-                          ? `· ${anchors.length} anchored nodes`
-                          : ""}
-                      </FieldLabel>
-                      <Textarea
-                        id="prompt"
-                        value={message}
-                        onChange={(e) => {
-                          setMessage(e.target.value);
-                          if (draftKey)
-                            sessionStorage.setItem(
-                              draftKey,
-                              JSON.stringify({
-                                message: e.target.value,
-                                anchors,
-                              }),
-                            );
-                        }}
-                        maxLength={4000}
-                        disabled={!writable}
-                      />
-                    </Field>
-                    <Button
-                      disabled={submitting || !writable || !message.trim()}
-                      type="submit"
-                    >
-                      Send
-                    </Button>
-                  </form>
-                </section>
-              }
-            />
-          )}
+        <div className={narrow ? "web-body web-body--narrow" : "web-body"}>
+          {mounted &&
+            (narrow ? (
+              <>
+                <div hidden={chatOpen}>{canvasView}</div>
+                <div hidden={!chatOpen}>{chat}</div>
+              </>
+            ) : (
+              <WorkspacePanels
+                chatOpen={chatOpen}
+                canvas={canvasView}
+                chat={chat}
+              />
+            ))}
         </div>
       )}
     </main>
+  );
+}
+const emptyMeeting = { session: null, segments: [], contextRuns: [] };
+function MeetingPanel({
+  meeting,
+  writable,
+  open,
+  onOpenChange,
+  canvas,
+  act,
+  onRefresh,
+  onStarted,
+}: any) {
+  const { session, segments, contextRuns } = meeting;
+  const active = session && session.status !== "ended" ? session : null;
+  const [label, setLabel] = useState("Synthetic meeting"),
+    [speaker, setSpeaker] = useState("Speaker 1"),
+    [text, setText] = useState(""),
+    [result, setResult] = useState(""),
+    [lastPartial, setLastPartial] = useState<any>(null);
+  const list = useRef<HTMLOListElement>(null),
+    atBottom = useRef(true);
+  const ordered = [...segments].sort((a: any, b: any) => a.seq - b.seq);
+  useEffect(() => {
+    const node = list.current;
+    if (node && atBottom.current) node.scrollTop = node.scrollHeight;
+  }, [segments]);
+  const post = (final: boolean, partial?: any) =>
+    act(async () => {
+      const sourceId = partial?.sourceId ?? crypto.randomUUID(),
+        startedAtMs =
+          partial?.startedAtMs ?? Math.max(0, Date.now() - Date.parse(session.created_at));
+      const data = await api("meeting/segments", {
+        canvas,
+        session: session.id,
+        segments: [{ sourceId, speaker, text, startedAtMs, final }],
+      });
+      const outcome = data.outcomes[0];
+      setResult(
+        outcome.outcome === "inserted" || outcome.outcome === "replaced"
+          ? `${outcome.outcome} #${outcome.seq}`
+          : outcome.outcome,
+      );
+      setLastPartial(final ? null : { sourceId, startedAtMs });
+      if (final) setText("");
+      await onRefresh();
+    });
+  const setStatus = (status: string) =>
+    act(async () => {
+      await api("meeting/status", { canvas, session: session.id, status });
+      await onRefresh();
+    });
+  return (
+    <details
+      className="web-meeting"
+      open={open}
+      onToggle={(event) => {
+        const next = (event.currentTarget as HTMLDetailsElement).open;
+        if (next !== open) onOpenChange(next);
+      }}
+    >
+      <summary>
+        Meeting <Badge variant="secondary">{active ? active.status : session ? session.status : "none"}</Badge>
+      </summary>
+      {!active && writable && (
+        <div className="web-row">
+          <Input
+            aria-label="Meeting label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            maxLength={120}
+          />
+          <Button
+            disabled={!label.trim()}
+            onClick={() =>
+              void act(async () =>
+                onStarted(await api("meeting/start", { canvas, label })),
+              )
+            }
+          >
+            Start synthetic meeting
+          </Button>
+        </div>
+      )}
+      {active && (
+        <>
+          <div className="web-row">
+            <span>{active.label}</span>
+            {writable && active.status === "listening" && (
+              <Button variant="outline" onClick={() => void setStatus("paused")}>
+                Pause
+              </Button>
+            )}
+            {writable && active.status === "paused" && (
+              <Button variant="outline" onClick={() => void setStatus("listening")}>
+                Resume
+              </Button>
+            )}
+            {writable && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (window.confirm("End this meeting? It cannot be resumed."))
+                    void setStatus("ended");
+                }}
+              >
+                End
+              </Button>
+            )}
+            {active.pause_reason === "budget" && (
+              <small>Paused: run budget reached</small>
+            )}
+          </div>
+          <p>
+            Automatic runs: {active.context_runs ?? contextRuns.length} · pending
+            segments: {active.pending_cursor - active.processed_cursor}
+          </p>
+        </>
+      )}
+      {session && (
+        <ol
+          className="web-transcript"
+          aria-label="Transcript"
+          ref={list}
+          onScroll={(event) => {
+            const node = event.currentTarget;
+            atBottom.current =
+              node.scrollTop + node.clientHeight >= node.scrollHeight - 4;
+          }}
+        >
+          {ordered.map((segment: any) => (
+            <li
+              key={segment.seq}
+              id={`segment-${session.id}-${segment.seq}`}
+              data-final={segment.final}
+              className={segment.final ? undefined : "web-partial"}
+            >
+              <span className="web-seq">#{segment.seq}</span>{" "}
+              <strong>{segment.speaker}</strong>: {segment.text}
+              {segment.final ? "" : "…"}
+            </li>
+          ))}
+        </ol>
+      )}
+      {active && writable && (
+        <div className="web-meeting-feed">
+          <Field>
+            <FieldLabel htmlFor="meeting-speaker">Speaker</FieldLabel>
+            <Input
+              id="meeting-speaker"
+              value={speaker}
+              onChange={(e) => setSpeaker(e.target.value)}
+              maxLength={80}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="meeting-text">Transcript text</FieldLabel>
+            <Textarea
+              id="meeting-text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={2000}
+            />
+          </Field>
+          <div className="web-row">
+            <Button
+              disabled={!text.trim() || !speaker.trim()}
+              onClick={() => void post(true)}
+            >
+              Add final
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!text.trim() || !speaker.trim()}
+              onClick={() => void post(false)}
+            >
+              Add partial
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!lastPartial || !text.trim() || !speaker.trim()}
+              onClick={() => void post(true, lastPartial)}
+            >
+              Finalize partial
+            </Button>
+          </div>
+          {result && <p role="status">{result}</p>}
+        </div>
+      )}
+    </details>
   );
 }
 function historyReplace() {

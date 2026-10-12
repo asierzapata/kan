@@ -21,6 +21,7 @@ await cp("apps/web-agent/agent", `${target}/agent`, { recursive: true });
 for (const name of [
   "addMermaidDiagram",
   "getCanvas",
+  "readMeetingContext",
   "addNode",
   "updateNode",
   "removeNodes",
@@ -35,7 +36,7 @@ for (const name of [
     (await readFile(file, "utf8")).replace(
       "../../../desktop/src",
       "../../apps/desktop/src",
-    ),
+    ).replace("../../../web/src", "../../apps/web/src"),
   );
 }
 const root = JSON.parse(await readFile("package.json", "utf8")),

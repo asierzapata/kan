@@ -1,10 +1,11 @@
 # Kan web migration — plan and implementation evidence
 
 Plan date: 2026-10-04. Implementation audit: 2026-10-12.
-M1–M3 have maintained workspaces and staging implementations, and the M3 live
-crash/retry gate passed on hosted staging on 2026-10-12 (see the ledger). M4 is
-in progress. Do not label the migration complete from builds or older M0 evidence.
-All existing desktop sources are preserved.
+M1–M4 have maintained workspaces and staging implementations; the M3 live
+crash/retry gate and the M4 browser acceptance passed on hosted staging on
+2026-10-12 (see the ledger). M5 (release/cutover) is open. Do not label the
+migration complete from builds or older M0 evidence. All existing desktop sources
+are preserved.
 
 ## Current maintained implementation
 
@@ -13,10 +14,12 @@ All existing desktop sources are preserved.
 | M1 | Start/AuthKit, onboarding/workspaces, owner/editor/viewer membership, recipient-bound invitation links, canvas catalog CRUD, HTTP/socket/tool authorization | Synthetic hosted HTTP/invitation/isolation checks; real browser canvas create/open; hosted role downgrade, membership revocation and WorkOS remote session revocation |
 | M2 | Desktop theme/panels/renderers/tools reused, eight rich types plus native shapes, private R2 assets, bounded Neon record deltas, commit-before-ack, fencing/receipts, reconstruction | Two hosted tldraw clients across reconnect/expiry; two actual Arc clients share a calendar edit; eight visible rich types and authenticated PNG; draft preservation and keyboard panel resizing |
 | M3 | Neon threads/messages/runs, scoped streaming observer, eve/Gateway tools, per-canvas queue, cancellation, retry limits/receipts, dispatch reconciliation | Hosted paid acceptance passed 2026-10-12: post-commit process crash recovered from the durable receipt, queued Mermaid native graph committed, retry API requeued a failed run with a fresh session, missing-node retry failed without mutation, completed-run retry denied. Fresh live-browser streaming acceptance remains open |
+| M4 | Synthetic meeting sessions and transcript segments (partial/final/duplicate/stale), buffered automatic context runs (8 s settle, 45 s max wait, explicit-request priority, per-session and staging caps), `readMeetingContext` tool, evidence links, pause/resume/end, human-edit-preserving undo (`run/revert`), narrow layout | Hosted browser acceptance passed 2026-10-12 with two real automatic runs: transcript display, context notes, "Based on transcript" evidence highlighting, pause suppressed scheduling, resume scheduled the follow-up for exactly the new segment, end hid the feed, reload restored history, 390 px layout has no horizontal overflow and keeps the canvas mounted across the Chat/Canvas toggle; undo removed an untouched agent node and kept an agent node that a later run had modified. 17 new local regressions (meeting + revert). Synthetic transcript only — no live capture |
 
 Deployment is only https://staging.getkan.dev, in the dedicated `kan-staging`
-Vercel project. Current web deployment: `dpl_4Mef8v3JYgczvrvKiRUjR7Ycb5DX`
-(READY; carries the server-bundle fix below). The previous
+Vercel project. Current web deployment: `7Y6jhbCjLXs15HKjra1ZbwDHWow4` (READY;
+M4 complete) with Worker version `08c6c389-30d1-487c-96fe-9bc52bbacbd7`.
+`dpl_4Mef8v3JYgczvrvKiRUjR7Ycb5DX` carried the server-bundle fix below. The previous
 `dpl_C3bYnm7xP5pe6UYKrk6WVAzHHmww` passed the anchor/thread visual checks but
 returned 503 on every hosted `addMermaidDiagram`. The Worker configuration now
 retains `WEB_API_URL=https://staging.getkan.dev/api/web`; omitting it on deployment
@@ -30,7 +33,15 @@ Use Node 24.13.0, npm 11.6.2, and deploy from the isolated source prepared by
 
 ### Validation ledger (2026-10-12)
 
-- **20 web regression tests pass**: role/isolation, bounded atomic persistence,
+- **37 web regression tests pass** (`npm run test:web`): the 20 below plus 11
+  meeting tests (segment upsert outcomes, settle and max-wait scheduling with an
+  injected clock, follow-up for arrivals during a run, explicit-request priority,
+  pause/resume/end, revoked creator → denied, per-session and global run caps,
+  `readMeetingContext` range/finality, migration-string guard) and 6 revert tests
+  (untouched creations removed while a human-edited node and its human arrow are
+  kept, update-only runs revert nothing, double revert 409, running run 409,
+  viewer 403, receipts survive so retry still refuses, stale agent revision is
+  rejected and succeeds after re-reading). The original 20: role/isolation, bounded atomic persistence,
   fencing, duplicate/conflicting operations, post-commit recovery, rich state,
   graph tools, fractional indices beyond ten nodes, revocation/cancellation at
   commit, Mermaid native graphs, queue snapshots, retry checks before resetting
@@ -76,8 +87,21 @@ Use Node 24.13.0, npm 11.6.2, and deploy from the isolated source prepared by
   retrying the completed run returned 409. Four sessions, **$0.00369896** of model
   steps. The crash-recovery turn was bought once and reused across three attempts
   (`KAN_RESUME_RECOVERY_RUN`); the two earlier attempts failed on the hosted
-  Mermaid bug below and cost about $0.001 more. Five of the twenty staging runs
-  are consumed.
+  Mermaid bug below and cost about $0.001 more.
+- **M4 hosted browser acceptance** (headless Chromium via `agent-browser` with
+  the synthetic fixture cookie; screenshots in `/tmp/kan-m4-browser/` and
+  `/tmp/kan-m4c-browser/`): started "QA synthetic standup", a partial segment was
+  replaced by its final (`replaced #1`), two more finals (`#2`, `#3`); after the
+  settle window one automatic run (`auto`/`complete`) added a `kan-markdown`
+  "Web alpha — meeting notes" and replied citing segments 1–3; "Based on
+  transcript 1–3" highlighted #1–#3. Pause + segment #4 → no run after 40 s;
+  Resume → one follow-up run for 4–4 updated the same note. End hid the feed and
+  the header badge; reload restored both context notes and the transcript. Undo
+  on run 1–3 kept the note (modified later), undo on 4–4 removed nothing, undo on
+  the earlier "QA crash recovery" request removed exactly that node and set
+  `reverted_at`. Two paid runs; **7 of the 20 staging runs are consumed**. Known
+  gap: the partial-segment ellipsis was never on screen because the UI then
+  refreshed only on the 2 s poll (now refetched immediately after each post).
 - **Hosted Mermaid bug, found and fixed by this gate.** Nitro inlined `jsdom` into
   the server bundle as ESM, so its CJS `__dirname` read of `default-stylesheet.css`
   threw `ReferenceError` on first import (503 on every `addMermaidDiagram`). Local
@@ -119,7 +143,12 @@ credit reload is enabled.
   these do not establish full M3 acceptance.
 - Synthetic fixture canvases are retained for the pending acceptance. Cleanup is
   deferred until those checks finish; user and M0 data are untouched.
-- Narrow/mobile layout, prolonged offline editing, realistic room load/latency,
+- Meeting context is synthetic (typed segments) by design for Part 1; a partial
+  segment that finalizes after a later final has already been processed falls
+  below `processed_cursor` and is never read by the agent; a budget pause is not
+  undone by Resume. Undo reverts only records the run created and that are
+  unchanged since; agent updates to human nodes are reported, not undone.
+- Prolonged offline editing, realistic room load/latency,
   event retention/compaction, durable outbox delivery monitoring, abandonment
   cleanup for R2 uploads, backup/restore and production concurrency/billing policy
   remain release hardening work. Events/receipts are durable, but there is no

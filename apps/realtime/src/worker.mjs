@@ -1,4 +1,4 @@
-import { planTool } from "./tools.ts";
+import { planTool, planRevert } from "./tools.ts";
 import { DurableObject } from "cloudflare:workers";
 import { Coordinator } from "./coordinator.mjs";
 import { RemotePersistence } from "./remote.mjs";
@@ -257,6 +257,30 @@ export class WebRoom extends DurableObject {
         await authorize(this.env, this.roomId, input.user, true);
         if (input.name === "getCanvas") {
           const plan = planTool(this.coordinator.room, schema, input);
+          return Response.json({
+            ...plan.result,
+            revision: this.coordinator.revision,
+          });
+        }
+        if (input.name === "revertRun") {
+          const plan = planRevert(
+            this.coordinator.room,
+            input.input?.candidates,
+          );
+          if (plan.removes.length)
+            await this.coordinator.transact(
+              input.operation,
+              {
+                name: input.name,
+                input: input.input,
+                actor: { user: input.user },
+              },
+              (room) =>
+                room.updateStore((store) =>
+                  plan.removes.forEach((id) => store.delete(id)),
+                ),
+              true,
+            );
           return Response.json({
             ...plan.result,
             revision: this.coordinator.revision,

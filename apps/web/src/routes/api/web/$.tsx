@@ -6,7 +6,14 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import { enqueue, dispatch, agentClient, retryRun } from "../../../lib/runs";
+import { enqueue, dispatch, agentClient, retryRun, revertRun } from "../../../lib/runs";
+import {
+  startMeeting,
+  ingestSegments,
+  setMeetingStatus,
+  meetingState,
+  readMeetingContext,
+} from "../../../lib/meeting";
 import { database } from "../../../lib/database";
 import { RunStreamBoundary } from "../../../lib/run-stream";
 import {
@@ -47,7 +54,7 @@ async function handle(request: Request): Promise<Response> {
         return json({
           canvases: (
             await db.query(
-              "SELECT DISTINCT t.canvas FROM web_runs r JOIN web_threads t ON t.id=r.thread WHERE r.status IN ('queued','running','dispatching','cancelling') LIMIT 100",
+              "SELECT DISTINCT canvas FROM (SELECT t.canvas FROM web_runs r JOIN web_threads t ON t.id=r.thread WHERE r.status IN ('queued','running','dispatching','cancelling') UNION SELECT canvas FROM web_meeting_sessions WHERE status='listening' AND pending_cursor>processed_cursor) c LIMIT 100",
             )
           ).rows.map((row: any) => row.canvas),
         });
@@ -84,6 +91,12 @@ async function handle(request: Request): Promise<Response> {
           !body.input.shapeIds
         )
           body.input = { ...body.input, shapeIds: run.anchors };
+        if (body.name === "readMeetingContext")
+          return json(
+            await db.transaction((tx: any) =>
+              readMeetingContext(tx, run, body.input),
+            ),
+          );
         if (body.name === "addMermaidDiagram") {
           const { parseDiagram } = await import("../../../lib/diagrams");
           body.diagram = await parseDiagram(body.input);
@@ -162,7 +175,7 @@ async function handle(request: Request): Promise<Response> {
       throw new HttpError(403, "Invalid origin");
     if (
       request.method !== "POST" &&
-      !["catalog", "members", "room", "history", "stream"].includes(path)
+      !["catalog", "members", "room", "history", "stream", "meeting"].includes(path)
     )
       throw new HttpError(405, "POST required");
     const input =
@@ -368,12 +381,21 @@ async function handle(request: Request): Promise<Response> {
           ).rows,
           runs: (
             await tx.query(
-              "SELECT r.id,r.thread,r.user_id,r.status,r.session_id,r.created_at FROM web_runs r JOIN web_threads t ON t.id=r.thread WHERE t.canvas=$1 ORDER BY r.created_at",
+              "SELECT r.id,r.thread,r.user_id,r.status,r.session_id,r.created_at,r.kind,r.meeting_session,r.context_from,r.context_to,r.reverted_at FROM web_runs r JOIN web_threads t ON t.id=r.thread WHERE t.canvas=$1 ORDER BY r.created_at",
               [canvas.id],
             )
           ).rows,
         };
       }
+      if (path === "meeting/start")
+        return startMeeting(tx, canvas.id, user.id, input);
+      if (path === "meeting/segments")
+        return ingestSegments(tx, canvas.id, user.id, input);
+      if (path === "meeting/status")
+        return setMeetingStatus(tx, canvas.id, user.id, input);
+      if (path === "meeting") return meetingState(tx, canvas.id, user.id);
+      if (path === "run/revert")
+        return revertRun(tx, canvas.id, user.id, input.run);
       if (path === "retry") {
         return retryRun(tx, canvas.id, user.id, input.run, sessionId);
       }
@@ -418,7 +440,11 @@ async function handle(request: Request): Promise<Response> {
       }
       throw new HttpError(404, "Not found");
     });
-    if (path === "chat" || path === "retry" || path === "cancel")
+    if (
+      ["chat", "retry", "cancel", "meeting/segments", "meeting/status"].includes(
+        path,
+      )
+    )
       await fetch(`${process.env.STAGING_WORKER_URL}/wake`, {
         method: "POST",
         redirect: "manual",

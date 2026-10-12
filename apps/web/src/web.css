@@ -98,3 +98,97 @@ body {
     padding: 8px;
   }
 }
+@media (max-width: 720px) {
+  .web-header {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+  }
+  .web-chat select {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .web-chat {
+    padding: 10px;
+  }
+  .web-catalog {
+    margin: 16px auto;
+    padding: 12px;
+  }
+  .web-transcript {
+    max-height: 160px;
+  }
+  .web-chat {
+    border-left: none;
+  }
+}
+.web-body--narrow {
+  display: flex;
+  flex-direction: column;
+}
+.web-body--narrow > * {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.web-body--narrow [hidden] {
+  display: none;
+}
+.web-chat {
+  min-width: 0;
+  overflow: hidden;
+}
+.web-meeting {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+.web-meeting > summary {
+  cursor: pointer;
+}
+.web-meeting > :not(summary) {
+  margin-top: 8px;
+}
+.web-meeting[open] {
+  overflow-y: auto;
+  max-height: 55vh;
+}
+.web-meeting-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.web-transcript {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.web-transcript li {
+  overflow-wrap: anywhere;
+  border-radius: var(--radius);
+  transition: background 0.4s;
+}
+.web-seq {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.web-partial {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.web-highlight {
+  background: color-mix(in oklab, var(--primary) 18%, transparent);
+  transition: background 0.4s;
+}
+.web-context-note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}

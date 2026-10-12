@@ -75,6 +75,14 @@ failure eligible for explicit reconciliation/retry. Cancellation preserves edits
 already committed. Staging has a 20-run evaluation ceiling, including fixtures,
 and bounded eve session/token/cost limits; these are not production billing policy.
 
+Undo reverts a finished turn (complete, failed or cancelled) once, editor-only.
+It removes only records the turn created whose live document still matches what
+the turn committed, plus the bindings and children that depend on them. Created
+records a person changed afterwards, records the turn merely updated (such as
+human-authored nodes), and agent records that human-created records depend on are
+left alone and reported. The turn's saved receipts stay in place, so a reverted
+turn still cannot be blindly retried.
+
 See [WEB_MIGRATION.md](../../WEB_MIGRATION.md) for actual acceptance evidence and
 remaining gates. Browser tests do not establish Tauri/native coverage. Live
 meetings, video and transcription belong to phase 2.

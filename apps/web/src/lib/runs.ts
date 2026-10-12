@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { hash } from "@kan/web-core/hash";
 import { canvasAccess, HttpError, text } from "./access";
 import { scheduleContextRun } from "./meeting";
+import { runCeilingReached } from "./policy";
 export function agentClient() {
   return new Client({
     host: process.env.EVE_INTERNAL_URL!,
@@ -41,7 +42,7 @@ export async function enqueue(
   }
   const count = (await tx.query("SELECT count(*)::int AS count FROM web_runs"))
     .rows[0].count;
-  if (count >= 20)
+  if (runCeilingReached(count))
     throw new HttpError(429, "Staging evaluation turn limit reached");
   let thread = input.thread;
   if (thread) {

@@ -3,10 +3,11 @@ import { z } from "zod";
 import { hash } from "@kan/web-core/hash";
 import { canvasAccess, HttpError, text } from "./access";
 import { readMeetingContextInput } from "./meeting-schema";
+import { contextRunCap, runCeilingReached } from "./policy";
 export { readMeetingContextInput };
 export const CONTEXT_SETTLE_MS = 8000;
 export const CONTEXT_MAX_WAIT_MS = 45000;
-export const CONTEXT_RUN_CAP = 20;
+export { contextRunCap };
 const segmentInput = z.object({
   sourceId: z.string().min(1).max(120),
   speaker: z.string().min(1).max(80),
@@ -268,7 +269,8 @@ export async function scheduleContextRun(
   );
   const total = (await tx.query("SELECT count(*)::int AS count FROM web_runs"))
     .rows[0].count;
-  if (session.context_runs >= CONTEXT_RUN_CAP || total >= 20) {
+  const cap = contextRunCap();
+  if ((cap > 0 && session.context_runs >= cap) || runCeilingReached(total)) {
     await tx.query(
       "UPDATE web_meeting_sessions SET status='paused',pause_reason='budget' WHERE id=$1",
       [session.id],

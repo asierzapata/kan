@@ -160,6 +160,45 @@ credit reload is enabled.
   are outside M1–M3. The staging-only privileged fault hook must be removed or
   explicitly disabled before any production release.
 
+### M5 status — release readiness and cutover decisions (2026-10-12)
+
+What is implemented and locally proven for M5:
+
+- **Backup/restore**: `scripts/web/backup.mjs <canvas> <out.json>` and
+  `scripts/web/restore.mjs <in.json> <workspace>` export and re-import one canvas
+  (rooms, records, events, threads, runs, messages, assets metadata, meeting
+  sessions and segments) preserving ids, revisions and cursors. The regression
+  test restores into a fresh database, reconstructs the coordinator to the same
+  revision and record hashes, and commits a further change on the restored room.
+  Asset bytes in R2 are **not** part of the export; restoring to a different R2
+  bucket needs an object copy that is not scripted.
+- **Migration drills**: `migrate()` is idempotent; a 002-era database migrates
+  forward with seeded rows intact; the migration string is guarded against
+  `DROP`/`DELETE`/`TRUNCATE`. Rollback is forward-fix only, by design.
+- **Policy is explicit configuration**: `KAN_RUN_CEILING` and
+  `KAN_CONTEXT_RUN_CAP` replace the hard-coded staging numbers. In
+  `KAN_ENV=production` the run ceiling is required (0 = unlimited), so a
+  production deploy cannot silently inherit the staging evaluation budget. The
+  `arm-recovery` fault hook is 403 outside `KAN_ENV=staging`; it remains in the
+  codebase and must stay disabled in production configuration.
+
+What M5 still needs, and who decides:
+
+| Decision | Options | Needed before |
+| --- | --- | --- |
+| Production resources | New Vercel project (not the marketing one), production WorkOS environment with real redirect URIs, Neon production branch in the chosen region, a production Cloudflare Worker/DO namespace and R2 bucket, Gateway budget | First production deploy |
+| Billing policy | `KAN_RUN_CEILING` (0 = unlimited) and per-session eve limits in `apps/web-agent/agent/agent.ts` (currently $0.10/session, 100k input tokens) | First production deploy |
+| Desktop data import | (a) none — web starts empty, desktop stays available; (b) one-time export of local SQLite canvases into web canvases via the backup format (identity remap required: installation ids → WorkOS users) | Cutover |
+| Desktop retirement | Keep the Tauri app as-is until web parity is accepted by its users; remove ACP/Vonage/classifier code in a separate cleanup | After cutover |
+| Retention | Event compaction/snapshotting and transcript retention are unimplemented; current growth is one `web_events` row per commit | Before sustained production use |
+
+Rollout order once decided: provision → deploy with `KAN_ENV=production` and an
+explicit ceiling → run `scripts/web/acceptance.mjs`, `security-acceptance.mjs`,
+`realtime-acceptance.mjs` and one bounded `agent-recovery-acceptance.mjs` against
+production with a disposable QA workspace → take a `backup.mjs` export and restore
+it into a scratch database → invite real users. Staging stays as the rehearsal
+environment; nothing in this repository deploys to production automatically.
+
 The sections below retain the architecture and future milestone plan. Earlier M0
 acceptance statements describe the historical spike; they do not override the
 maintained-workspace evidence above.

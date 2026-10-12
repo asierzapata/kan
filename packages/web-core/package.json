@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     "./persistence": "./src/persistence.mjs",
-    "./hash": "./src/hash.mjs"
+    "./hash": "./src/hash.mjs",
+    "./backup": "./src/backup.mjs"
   },
   "scripts": {
     "test": "node --import tsx --test test/*.test.mjs"

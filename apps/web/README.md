@@ -83,6 +83,31 @@ human-authored nodes), and agent records that human-created records depend on ar
 left alone and reported. The turn's saved receipts stay in place, so a reverted
 turn still cannot be blindly retried.
 
+## Environment
+
+Names only; values live in the deployment's secret store.
+
+| Variable | Purpose |
+| --- | --- |
+| `KAN_ENV` | `staging` or `production`; fixture hooks (`arm-recovery`) work only in `staging`. |
+| `KAN_RUN_CEILING` | Maximum runs stored per database; `0` means unlimited. Defaults to `20` when unset in staging. Required when `KAN_ENV=production`; the first run attempt fails loudly without it. |
+| `KAN_CONTEXT_RUN_CAP` | Automatic meeting-context runs per meeting before it pauses (`0` means unlimited, default `20`). |
+| `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_COOKIE_PASSWORD`, `WORKOS_REDIRECT_URI` | WorkOS AuthKit sign-in. |
+| `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | PostgreSQL. The app uses the unpooled URL when present; backup and restore scripts read `DATABASE_URL`. |
+| `STAGING_SECRET` | Shared bearer secret between the web app, the worker and the agent. |
+| `STAGING_WORKER_URL` | Realtime worker base URL. |
+| `WEB_API_URL` | Public `/api/web` base URL used by the agent and the worker. |
+| `EVE_INTERNAL_URL` | Agent runtime base URL (bound by the deployment). |
+| `VITE_TLDRAW_LICENSE_KEY` | tldraw license for the canvas bundle. |
+
+## Backup and restore
+
+`node scripts/web/backup.mjs <canvasId> <out.json>` writes one canvas (records,
+events, threads, runs, messages, assets and meeting data) with mode 0600.
+`node scripts/web/restore.mjs <in.json> <workspaceId>` imports it into a database
+where that canvas does not exist yet. Both need `DATABASE_URL`, print row counts
+only, and are operator tools.
+
 See [WEB_MIGRATION.md](../../WEB_MIGRATION.md) for actual acceptance evidence and
 remaining gates. Browser tests do not establish Tauri/native coverage. Live
 meetings, video and transcription belong to phase 2.

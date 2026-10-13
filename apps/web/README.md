@@ -35,6 +35,53 @@ staging Neon URL, `STAGING_SECRET`, `STAGING_WORKER_URL`, `WEB_API_URL` and eve'
 private service binding `EVE_INTERNAL_URL`. Never expose these to client bundles.
 The tldraw license is a publishable `VITE_TLDRAW_LICENSE_KEY`.
 
+## Production environment
+
+Production uses the separate `kan-web` Vercel project
+`prj_duGsOn7h4StAHdG5M5YMPp1qlbWS` in team
+`team_akRYoQmwKh1BfjdZhygO8zbp`, with domain `app.getkan.dev` and London
+(`lhr1`) functions. First deployed on 2026-10-13; current deployment: `dpl_C8fJi8XBgh2yP7v5f8CUurZWfwWS`.
+The live homepage, signed-out authorization, production AuthKit redirect and
+disabled fault hook pass. Authenticated acceptance and backup/restore remain
+pending local QA credentials; deployment alone is not release acceptance.
+
+- Neon: `kan-production` / `blue-lab-69235140`, branch
+  `br-rapid-moon-zaurnl7p`, AWS London (`aws-eu-west-2`). The additive
+  `kan_web_v1` schema has 13 `web_*` tables.
+- Cloudflare: `kan-prod-realtime` at `https://realtime.getkan.dev`, configured
+  by `apps/realtime/wrangler.production.jsonc`, with `workers_dev: false`.
+  `ASSETS` uses the separate private `kan-prod-assets` R2 bucket (WEUR).
+- WorkOS cutover target: existing `Kan` project
+  `project_01M4R7W6N055VS08YPQX5M3QMP`, production environment
+  `environment_01M4R7W757ZA0C2PK2JMX6E367`, newly created `Kan` application
+  `app_01M4TSRTD3NRS4E83PKSHSN2Q5`, client
+  `client_01M4TSRTD23DCGXGA4036AEN74`. Email/password is enabled; Google and
+  SSO are disabled. Callback must be `https://app.getkan.dev/api/auth/callback`;
+  logout is `https://app.getkan.dev`. Both URLs are registered on the Kan app,
+  and the production deployment uses its client ID and the updated API key.
+  Production sign-in was verified by the user on 2026-10-13. The obsolete
+  `Kan Web Production` project still needs removal through the WorkOS dashboard.
+- Policy: `KAN_ENV=production`, `KAN_RUN_CEILING=0` (unlimited stored runs),
+  `KAN_CONTEXT_RUN_CAP=20`. Agent session limits remain $0.10, 100k input
+  tokens, 6k output tokens and one hour. The run ceiling is not a dollar budget.
+- Desktop import: none; web starts empty. Desktop retirement: not now;
+  the Tauri workspace and its data remain available.
+
+Use `node scripts/web/stage.mjs`, then explicitly link
+`/tmp/kan-web-staging-source` to the production project. Confirm the project and
+team IDs in its `.vercel/project.json` before deployment. The eve configuration
+supplies `EVE_INTERNAL_URL` through a private service binding. Never run
+`configure-staging.mjs` against production or deploy from the repository root.
+
+Production acceptance uses `KAN_ACCEPTANCE_CONFIG=/tmp/kan-prod-private.json`
+(mode 0600), `production-auth-fixture.mjs`, then the HTTP, security, realtime
+and bounded agent acceptance scripts. Production artifacts use `/tmp/kan-prod-*`
+paths. The production agent check requires `arm-recovery` to return 403 and
+does not inject a crash; crash-recovery coverage remains a staging drill.
+Back up the disposable QA canvas before cleanup, restore into a fresh scratch
+database, compare counts, then remove only that scratch branch and QA data.
+Backup exports include asset metadata but not R2 object bytes.
+
 ## Access and assets
 
 WorkOS authenticates users; Neon memberships authorize workspace/canvas access.

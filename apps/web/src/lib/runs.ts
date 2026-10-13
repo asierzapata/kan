@@ -43,7 +43,7 @@ export async function enqueue(
   const count = (await tx.query("SELECT count(*)::int AS count FROM web_runs"))
     .rows[0].count;
   if (runCeilingReached(count))
-    throw new HttpError(429, "Staging evaluation turn limit reached");
+    throw new HttpError(429, "Configured agent run limit reached");
   let thread = input.thread;
   if (thread) {
     const row = (

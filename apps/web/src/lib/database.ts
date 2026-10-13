@@ -3,14 +3,14 @@ import { Persistence } from "@kan/web-core/persistence";
 let ready: Promise<any> | undefined;
 export function database(): Promise<any> {
   return (ready ??= (async () => {
-    // Reuse staging credentials only. A new additive schema keeps M0 data intact.
-    if (process.env.KAN_ENV !== "staging")
-      throw new Error("Web environment must be explicitly staging");
+    if (!["staging", "production"].includes(process.env.KAN_ENV || ""))
+      throw new Error("Web environment must be explicitly staging or production");
+    const connectionString =
+      process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+    if (!connectionString) throw new Error("Web database URL is required");
     const schema = "kan_web_v1";
     const pool = new pg.Pool({
-      connectionString:
-        process.env.DATABASE_URL_UNPOOLED ||
-        process.env.POSTGRES_URL_NON_POOLING,
+      connectionString,
       max: 3,
       connectionTimeoutMillis: 10000,
     });

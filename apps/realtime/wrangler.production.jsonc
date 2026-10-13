@@ -1,0 +1,16 @@
+{
+  "name": "kan-prod-realtime",
+  "main": "src/worker.mjs",
+  "account_id": "0a527d12d0e64c4642bb8de93dac757e",
+  "compatibility_date": "2026-10-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "vars": { "WEB_API_URL": "https://app.getkan.dev/api/web" },
+  "routes": [{ "pattern": "realtime.getkan.dev", "custom_domain": true }],
+  "preview_urls": false,
+  "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "WebRoom" }] },
+  "migrations": [{ "tag": "staging-v1", "new_sqlite_classes": ["StagingRoom"] }, { "tag": "web-v1", "new_sqlite_classes": ["WebRoom"] }],
+  "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "kan-prod-assets" }],
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": { "enabled": false }
+}

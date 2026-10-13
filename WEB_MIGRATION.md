@@ -199,6 +199,37 @@ production with a disposable QA workspace → take a `backup.mjs` export and res
 it into a scratch database → invite real users. Staging stays as the rehearsal
 environment; nothing in this repository deploys to production automatically.
 
+### Production cutover decisions and provisioning (2026-10-13)
+
+The approved production domain is `app.getkan.dev`. Production has a separate
+Vercel `kan-web` project (`prj_duGsOn7h4StAHdG5M5YMPp1qlbWS`), London Neon
+project `blue-lab-69235140` with production branch `br-rapid-moon-zaurnl7p`,
+Cloudflare `kan-prod-realtime` Worker at `realtime.getkan.dev`, private
+`kan-prod-assets` R2 bucket. WorkOS is being moved to the existing `Kan` project's
+production environment (`environment_01M4R7W757ZA0C2PK2JMX6E367`) with the new
+`Kan` application (`app_01M4TSRTD3NRS4E83PKSHSN2Q5`, client
+`client_01M4TSRTD23DCGXGA4036AEN74`). Application callback/sign-out URLs are configured and the updated Vercel
+credentials are deployed as `dpl_C8fJi8XBgh2yP7v5f8CUurZWfwWS`; the obsolete
+`Kan Web Production` project remains pending dashboard deletion. Production
+sign-in was verified by the user on 2026-10-13. No staging infrastructure or secrets
+are reused. The existing marketing project remains separate.
+
+`KAN_ENV=production`, `KAN_RUN_CEILING=0` (unlimited) and
+`KAN_CONTEXT_RUN_CAP=20` are explicit. The existing per-session eve limits
+remain unchanged. Desktop data import is option (a): none; web starts empty.
+Desktop retirement is deferred; no desktop code or user data is removed.
+
+Provisioning, the 13-table production migration, Worker deployment, DNS,
+local web typecheck, 46 web regressions and the hosted-bundle import check
+are complete. The first web deployment, `dpl_8TnrzvT5Jv1e8MayXJqtzJdQwFt1`,
+is READY and aliased to `https://app.getkan.dev`. Four hosted HTTP checks pass:
+homepage 200, signed-out catalog 401, correct production AuthKit redirect, and
+`arm-recovery` 403. Authenticated acceptance and backup/restore remain pending
+local QA credentials. This is not a release acceptance claim. Evidence is
+private under `/tmp/kan-prod-*`; it is not committed.
+Production acceptance explicitly verifies the fault hook returns 403; the
+staging crash-injection assertion is skipped rather than enabling it in production.
+
 The sections below retain the architecture and future milestone plan. Earlier M0
 acceptance statements describe the historical spike; they do not override the
 maintained-workspace evidence above.

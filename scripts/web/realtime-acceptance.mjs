@@ -6,8 +6,9 @@ import {TLSyncClient,ClientWebSocketAdapter} from '@tldraw/sync-core';
 import {createTLSchema,defaultShapeSchemas} from '@tldraw/tlschema';
 import {draftToShapePartial} from '../../apps/desktop/src/nodes/draft.ts';
 import * as props from '../../apps/desktop/src/nodes/shapes/types.ts';
-const fixture=JSON.parse(await readFile('/tmp/kan-web-acceptance-fixture.json','utf8'));
-const origin='https://staging.getkan.dev',canvas=fixture.canvas;
+import {origin,artifact} from './acceptance-config.mjs';
+const fixture=JSON.parse(await readFile(artifact('acceptance-fixture'),'utf8'));
+const canvas=fixture.canvas;
 const schema=createTLSchema({shapes:{...defaultShapeSchemas,...Object.fromEntries(['markdown','chart','table','image','map','logo','timeline','calendar'].map(type=>[`kan-${type}`,{props:props[`${type}ShapeProps`]}]))}});
 globalThis.window??={addEventListener(){},removeEventListener(){},devicePixelRatio:1};globalThis.document??={addEventListener(){},removeEventListener(){},hidden:false};globalThis.requestAnimationFrame??=cb=>setTimeout(cb,16);globalThis.cancelAnimationFrame??=clearTimeout;
 async function wait(check,max=25000){const end=Date.now()+max;while(!check()){if(Date.now()>end)throw Error('Convergence timeout');await new Promise(r=>setTimeout(r,100));}}
@@ -22,6 +23,6 @@ try{
  b.close();const refreshed=await client(fixture.accounts[1]);clients.push(refreshed);assert.equal(refreshed.store.get(calendar.id).props.selectedDate,'2026-10-13');assert.equal(refreshed.store.get('shape:qa-web-7').props.src,fixture.src);
  await new Promise(r=>setTimeout(r,65000));await wait(()=>a.store.get(calendar.id)?.props.selectedDate==='2026-10-13');
  const note=refreshed.store.get('shape:qa-web-0');refreshed.store.put([{...note,props:{...note.props,body:'Edited after expiring ticket reconnect'}}]);await wait(()=>a.store.get(note.id)?.props.body==='Edited after expiring ticket reconnect');
- const result={checks:['two real TLSync clients over hosted Cloudflare/Neon','eight rich types committed','peer interactive state edit','fresh client reconstruction','expired ticket reconnect preserves records and resumes edits'],canvas};await writeFile('/tmp/kan-web-realtime-results.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+ const result={checks:['two real TLSync clients over hosted Cloudflare/Neon','eight rich types committed','peer interactive state edit','fresh client reconstruction','expired ticket reconnect preserves records and resumes edits'],canvas};await writeFile(artifact('realtime-results'),JSON.stringify(result,null,2),{mode:0o600});console.log(JSON.stringify(result));
 }finally{clients.forEach(client=>client.close());}
 process.exit(0);

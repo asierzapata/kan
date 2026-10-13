@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {readFile,writeFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
-const origin='https://staging.getkan.dev';
-const accounts=JSON.parse(await readFile('/tmp/kan-web-qa-sessions.json','utf8'));
+import {origin,workerUrl,artifact} from './acceptance-config.mjs';
+const accounts=JSON.parse(await readFile(artifact('qa-sessions'),'utf8'));
 const [owner,viewer]=accounts;
 const results=[];
 async function request(account,path,input,expected=200){
@@ -33,13 +33,13 @@ assert.equal((await fetch(src,{headers:{cookie:viewer.cookie}})).status,200);
 assert.equal((await fetch(src)).status,401);
 assert.equal((await fetch(`${origin}/api/assets?canvas=${canvas}`,{method:'POST',headers:{cookie:viewer.cookie,origin,'content-type':'image/png'},body:png})).status,403);
 results.push('private R2 image upload/read and denied upload/signed-out read');
-const ticket=await request(viewer,`room?canvas=${canvas}`);assert.ok(ticket.uri.startsWith('wss://kan-staging-realtime'));
+const ticket=await request(viewer,`room?canvas=${canvas}`);assert.equal(new URL(ticket.uri).hostname,new URL(workerUrl).hostname);
 await request(owner,'member/revoke',{workspace,user:viewer.id});
 await request(viewer,`room?canvas=${canvas}`,undefined,403);
 await request(viewer,'invitation/accept',{token},403);
 results.push('membership revocation and accepted invitation cannot restore revoked access');
 const editorInvitation=await request(owner,'invitation/create',{workspace,email:viewer.email,role:'editor'});
 await request(viewer,'invitation/accept',{token:new URL(editorInvitation.url).searchParams.get('invite')});
-await writeFile('/tmp/kan-web-acceptance-fixture.json',JSON.stringify({workspace,foreignWorkspace,canvas,foreign,src,accounts}),{mode:0o600});
-await writeFile('/tmp/kan-web-http-results.json',JSON.stringify({results,fixtureCanvas:canvas},null,2),{mode:0o600});
+await writeFile(artifact('acceptance-fixture'),JSON.stringify({workspace,foreignWorkspace,canvas,foreign,src,accounts}),{mode:0o600});
+await writeFile(artifact('http-results'),JSON.stringify({results,fixtureCanvas:canvas},null,2),{mode:0o600});
 console.log(JSON.stringify({checks:results,canvas},null,2));

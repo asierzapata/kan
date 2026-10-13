@@ -10,12 +10,9 @@ import * as React from "react";
 import {
   RiCheckLine,
   RiCloseLine,
-  RiCloudLine,
   RiDeleteBinLine,
   RiEditLine,
-  RiFileCopyLine,
   RiHardDriveLine,
-  RiLogoutBoxLine,
   RiTimeLine,
 } from "@remixicon/react";
 
@@ -25,12 +22,9 @@ import { Spinner } from "./ui/spinner";
 import { cn } from "@/lib/utils";
 
 export interface CanvasCardItem {
-  /** Route parameter: the canvas id offline, the room id online. */
   id: string;
   name: string;
-  mode: "offline" | "online";
   lastActivity: string;
-  inviteCode?: string;
   thumbnail?: string;
 }
 
@@ -39,11 +33,7 @@ export interface CanvasCardProps {
   formatDate: (iso: string) => string;
   onOpen: () => void;
   onRename: () => void;
-  /** Offline copy of an online canvas. Absent for canvases already offline. */
-  onDuplicate?: () => void;
-  /** Deletes an offline canvas outright; leaves the room for an online one. */
   onRemove: () => void;
-  isDuplicating?: boolean;
   isRenaming?: boolean;
   isRemoving?: boolean;
   /** When set, the title is replaced by this editor. */
@@ -83,20 +73,16 @@ export function CanvasCard({
   formatDate,
   onOpen,
   onRename,
-  onDuplicate,
   onRemove,
-  isDuplicating = false,
   isRenaming = false,
   isRemoving = false,
   renameEditor,
 }: CanvasCardProps) {
-  const online = item.mode === "online";
-
   return (
     <article
       className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs transition-[border-color,box-shadow] duration-200 hover:border-foreground/20 hover:shadow-md focus-within:border-ring"
       aria-label={item.name}
-      data-mode={item.mode}
+      data-mode="offline"
     >
       <button
         type="button"
@@ -128,12 +114,8 @@ export function CanvasCard({
             "absolute left-3 top-3 inline-flex items-center gap-1 rounded-md bg-card/95 px-2 py-1 text-xs font-medium text-muted-foreground shadow-xs",
           )}
         >
-          {online ? (
-            <RiCloudLine className="size-3" />
-          ) : (
-            <RiHardDriveLine className="size-3" />
-          )}
-          {online ? "Online" : "Offline"}
+          <RiHardDriveLine className="size-3" />
+          Offline
         </span>
       </button>
 
@@ -152,14 +134,6 @@ export function CanvasCard({
         <div className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
           <RiTimeLine className="size-3 shrink-0" />
           <span className="truncate">{formatDate(item.lastActivity)}</span>
-          {item.inviteCode ? (
-            <>
-              <span aria-hidden>·</span>
-              <span className="truncate uppercase text-primary/90">
-                {item.inviteCode}
-              </span>
-            </>
-          ) : null}
         </div>
 
         <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -174,24 +148,6 @@ export function CanvasCard({
             Rename
           </Button>
 
-          {onDuplicate ? (
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={onDuplicate}
-              disabled={isDuplicating}
-              className="gap-1 text-xs"
-              title="Create an independent offline copy"
-            >
-              {isDuplicating ? (
-                <Spinner className="size-3" />
-              ) : (
-                <RiFileCopyLine className="size-3" />
-              )}
-              Copy offline
-            </Button>
-          ) : null}
-
           {/* Last and set apart, so the irreversible one is not adjacent to
               Rename in the tab order or under a mis-aimed click. */}
           <Button
@@ -200,20 +156,14 @@ export function CanvasCard({
             onClick={onRemove}
             disabled={isRemoving}
             className="ml-auto gap-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            title={
-              online
-                ? "Leave this room; it stays for everyone else"
-                : "Delete this canvas from this device"
-            }
+            title="Delete this canvas from this device"
           >
             {isRemoving ? (
               <Spinner className="size-3" />
-            ) : online ? (
-              <RiLogoutBoxLine className="size-3" />
             ) : (
               <RiDeleteBinLine className="size-3" />
             )}
-            {online ? "Leave" : "Delete"}
+            Delete
           </Button>
         </div>
       </div>

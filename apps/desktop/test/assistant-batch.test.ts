@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { toRichText, type TLShape, type TLShapeId, type TLShapePartial } from "@tldraw/tlschema";
 import type { Editor } from "tldraw";
 import type { Mutation, NodeDraft } from "@kan/protocol";
-import { toViewEntry } from "../src/lib/room-transport";
+import { toViewEntry } from "../src/lib/transport";
 const { applyAssistantOperations }: typeof import("../src/lib/assistant-canvas") = await import(process.env.KAN_GALTEA_CANVAS_MODULE ?? "../src/lib/assistant-canvas");
 
 function fixture() {

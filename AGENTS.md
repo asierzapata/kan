@@ -197,7 +197,7 @@ The agent never touches tldraw directly; it goes through the tool layer.
   `groupNodes`, `getCanvas`. Every input is zod-parsed first.
 - In dev, `window.__kan = { editor, tools }` and `window.__kanErrors` exist.
   There is no node demo palette, node scenario runner, or automatic canvas
-  seeding; nodes remain available through the tool layer. Existing room data is
+  seeding; nodes remain available through the tool layer. Existing local canvas data is
   preserved; the thread conversation simulator is gone. Drive tools with
   `node scripts/drive.mjs eval 'window.__kan.tools.getCanvas()'`.
 
@@ -207,10 +207,10 @@ The local Devin ACP path is wired to those offline tools through a loopback
 `kan-canvas` MCP bridge. The bridge is exposed only during an active prompt on
 the current offline canvas, validates every request with the same zod schemas,
 and approves only correlated canvas tool calls; filesystem and terminal calls
-remain denied. Online canvases retain only the shared renderer (the web app's server-side tools live in `apps/server/src/planner.ts`); publishing
-rich-node snapshots requires that follow-up schema integration. Offline canvases
-register both renderers, preserve duplicated initial records, and reuse
-`CanvasProvider`.
+remain denied. Offline canvases register both renderers (`lib/canvas-shapes.tsx`
+and `createKanShapeUtils()`), preserve initial records, and reuse
+`CanvasProvider`. The web app's server-side tools live in
+`apps/server/src/planner.ts`.
 Run `node scripts/canvas-tools.e2e.mjs` for tool-layer coverage. It cleans its
 own canvas and restores the original page. Do not drive concurrently. The old
 `local-agent.e2e.mjs` drove the deleted conversation simulator and went with it;
@@ -327,10 +327,8 @@ need sticky routing by canvas; that is not supported.
   run. The PGlite Kysely dialect (`src/kysely-pglite.ts`) shares one connection and
   does not serialize concurrent transactions (dev only). The agent turn has not
   yet been exercised against a live eve in this topology (no
-  `AI_GATEWAY_API_KEY` was available). The desktop app's online-room features
-  still point at the removed room server: `api-client.ts`, `room-transport.ts`,
-  `use-room-video.ts`, publish/duplicate/delete canvas, `JoinRoomDialog` and the
-  room routes.
+  `AI_GATEWAY_API_KEY` was available). The desktop app no longer has online
+  rooms: it keeps offline canvases and the local ACP agent only.
 
 `@kan/nodes` supplies the pure shared schema; the renderer is in
 `apps/desktop/src/lib/canvas-shapes.tsx`. SQLite files/WAL files and `/data/` are
@@ -423,28 +421,6 @@ credentials, service secrets or ticket URLs.
   `TAURI_WEBDRIVER_PORT` for the app and `TAURI_WEBDRIVER_URL` for the driver.
   Do not stop or drive somebody else's app on the default ports.
 
-## Online room video
-
-> The room server these features talked to was removed in the single-server rewrite; the desktop code remains but has no backend until re-pointed at apps/server.
-
-- Every online room entry mounts `RoomPrejoin` before canvas sync or Vonage connects.
-  Device previews are local; `Join room` is the publication boundary. The room route
-  owns capture so the selected tracks survive the transition, and cancellation or
-  leaving releases them. `LocalMedia` cancels stale permission/device requests.
-- `useRoomVideo` lazy-loads `@opentok/client` and gets short-lived credentials from
-  authenticated `GET /rooms/:id/video-token`. Vonage application secrets stay on
-  the room server. Both-off participants still connect and can receive the call.
-- `RoomParticipantStrip` sits at the top center of the canvas. Online tldraw users
-  use `createUserId(installationId)` to match the identity in Vonage connection
-  data; following uses tldraw's native start/stop-following methods.
-- Focused media lifecycle checks: `npx tsx --test apps/desktop/test/room-media.test.ts`.
-  Live multi-person media and follow-view checks still require two room clients.
-- Native call UI regression: `node scripts/call-theme.e2e.mjs` mounts the real
-  lobby and participant strip with synthetic media and a controlled subscriber.
-  It tests styling, device controls, permission states, retry and narrow layouts;
-  it does not contact Vonage or capture real devices. Set `TAURI_WEBDRIVER_URL`
-  for an isolated instance and do not drive concurrently.
-
 ## Queued bug regressions
 
 - `python3 scripts/qa_queue.py repair` repairs only recognized joined CSV rows,
@@ -485,8 +461,7 @@ credentials, service secrets or ticket URLs.
   traces. Optional error-stack/stderr capture is memory-only, expires after five
   minutes, and can still contain private text; preview before copying.
 - Native metadata logs live under app-local-data `diagnostics/`, with two bounded
-  files and private permissions. The runner uses `~/.local/state/kan/diagnostics`
-  (override with `KAN_DIAGNOSTICS_DIR`); neither log contains prompts, raw tool
+  files and private permissions. Neither log contains prompts, raw tool
   arguments, result contents, or credentials by default.
 - Desktop mutation `requestId` UUIDs deduplicate identical retries within the
   current canvas agent session, including across turns. Conflicting reuse is
@@ -505,124 +480,21 @@ credentials, service secrets or ticket URLs.
 - Focused tests: `npx tsx --tsconfig apps/desktop/tsconfig.json --test apps/desktop/test/agent-diagnostics.test.ts`,
   `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`.
 
-## Live room transcription
-
-> The room server these features talked to was removed in the single-server rewrite; the desktop code remains but has no backend until re-pointed at apps/server.
-
-- Vonage captions start after microphone publication, through authenticated
-  `POST /rooms/:id/captions`. The moderator token stays server-side; client video
-  tokens remain publishers. The existing Vonage SDK creates routed sessions and
-  enables partial captions by default. `VONAGE_CAPTION_LANGUAGE` selects the call
-  language on the server (default `en-US`); this is not automatic language detection.
-- Each client subscribes only to its own published stream for captions, using a
-  detached subscriber with audio/video reception disabled. Only that speaker
-  relays partial/final text through the authenticated events socket. The server
-  assigns the author, so muted listeners receive all transcripts without duplicate
-  writes. This path transcribes speech published by Kan clients, not external SIP
-  participants or other clients that do not relay their own captions.
-- Partials are ephemeral, replaced in place, and cleared on disconnect or after
-  15 seconds without an update. Only finals become durable `message` entries with
-  `source: "transcript"`; the UI maps those to collapsed transcript runs. Finals
-  use stable UUIDs and an in-memory retry queue across socket reconnects, not a
-  durable offline outbox. New captions do not open a collapsed run, and the thread
-  keeps the reader's expansion state independently of run grouping.
-- Caption-service starts are coalesced and refreshed every minute while publishing
-  audio, including after reconnect. Vonage ends captioning 60 seconds after the
-  last Video client disconnects. Retrying transcription does not restart media.
-  Deploy the room server and desktop together: old servers do not understand the
-  new transcript socket messages. Vonage live captions are usage-billed.
-- Focused checks: `npx tsx --tsconfig apps/desktop/tsconfig.json --test
-  apps/desktop/test/transcription.test.ts` (the room-server transport test went
-  with that workspace).
-  These cover controlled SDK events, rendering, real HTTP/WebSocket transport,
-  replay, attribution, and room isolation, not live-provider speech recognition.
-- A captions-only subscriber with `insertDefaultUI: false` must pass `undefined`
-  as the target element. Supplying even a detached div is rejected by OpenTok.js
-  before subscription (`OT_INVALID_PARAMETER`, code 1011). Keep the SDK option
-  compatibility assertion in the transcription test; an unconstrained mock missed
-  this integration failure.
-
-## Nebius Token Factory classifier
-
-> Historical: `apps/room-server` was removed in the single-server rewrite; the
-> files below no longer exist. Kept for context until the feature is re-pointed
-> at `apps/server` or dropped.
-
-- `apps/room-server/src/nebius-classifier.ts` is an opt-in provider for online
-  room classification, not the offline desktop agent. `KAN_CLASSIFIER=nebius`
-  requires server-only `NEBIUS_API_KEY`; never use a `VITE_` prefix. Existing
-  disabled/Jev defaults remain unchanged even when a Nebius key is present.
-- From the repo root, run `KAN_CLASSIFIER=nebius node --env-file=.env.local
-  --import tsx apps/room-server/src/main.ts`. The usual `npm run server` does
-  not load `.env.local`; deployments must supply these environment variables.
-  Do not replace another running server or point verification at user data.
-- `NEBIUS_CLASSIFIER_MODEL` overrides the default
-  `Qwen/Qwen3-30B-A3B-Instruct-2507`. Requests use Nebius's fixed HTTPS endpoint,
-  shared binary `shouldTrigger` criteria and validated `triggerProbability`, an
-  8-second deadline, at most 512 output tokens and no automatic retries.
-  Context above 128 KB is rejected before transmission. Model probabilities
-  are self-reported estimates, not calibrated scores or permission to mutate.
-- Enabling this sends room conversation/canvas context to Nebius and consumes
-  credits. The classifier only feeds existing contextual trigger policy;
-  explicit invocations bypass it, and canvas mutation still requires the
-  existing authorization flow. No prompt, key or raw provider error is logged.
-- Focused checks: `node --import tsx --test apps/room-server/test/nebius.test.ts`;
-  backend checks: `npm run typecheck:backend` and `npm run test:backend`.
-- `node --import tsx apps/room-server/test/nebius-live.ts` is a no-network preview.
-  With approval to spend credits, run `node --env-file=.env.local --import tsx
-  apps/room-server/test/nebius-live.ts --live`. It makes at most six synthetic
-  inference calls using a temporary real room server, verifies HTTP/WebSocket
-  triggers and unchanged canvas records, prints JSON results and cleans its own
-  data. This is live backend coverage, not native UI or downstream agent coverage.
-- Add `--publish` to `--live` to publish a completed synthetic evaluation through
-  Nebius's `POST /v1/datasets` API, with no manual website upload. Use
-  `node --env-file=.env.local --import tsx apps/room-server/test/nebius-live.ts
-  --publish-existing` to publish the recorded root
-  `nebius-classifier-evaluation.jsonl` without running inference. Both publication
-  modes require approval to store the synthetic results in the Nebius account;
-  neither changes organization-wide retention nor logs real room conversations.
-- Publishing validates all six fixture inputs and scores, uses a content-derived
-  dataset name to reuse identical results, waits for READY and verifies every
-  stored row. It never overwrites/deletes datasets or automatically retries a
-  write. History and model decisions are JSON-encoded string columns. Data Lab
-  displays application-scored results, not a Nebius-managed evaluation job.
-  Historical JSONL rows preserve their original multi-field decisions; they are
-  not reruns of the merged binary policy. New runs record the current policy
-  version in their provenance. No historical scores are rewritten on migration.
-  Checks: `node --import tsx --test apps/room-server/test/nebius-datalab.test.ts`.
-
-## Prompts and timestamped conversation tests
-
-> Historical: `apps/room-server` was removed in the single-server rewrite; the
-> files below no longer exist. Kept for context until the feature is re-pointed
-> at `apps/server` or dropped.
+## Prompts and drawing
 
 - All behavioral prompt text lives in `packages/protocol/src/prompts.ts`: shared
-  core, explicit/context modes, drawing contract, local MCP, runner and classifier.
+  core, explicit/context modes, drawing contract and local MCP.
   `assistant-policy.ts` retains scheduling and explicit-invocation helpers.
 - A bounded `diagram` mutation creates native editable geo nodes, bound arrows,
   and named frames in one batch. Layout is shared in `packages/nodes/src/diagram.ts`.
-  `label` updates an existing geo node's text without replacing its ID. Deploy
-  desktop and room server together when changing this shared mutation contract.
+  `label` updates an existing geo node's text without replacing its ID.
 - Literal creation/recolor commands use `directCanvasResult`, without a model call.
   Ambiguous targets, incomplete canvas context and broader requests fall through
-  to the agent. Contextual mode still cannot mutate. Explicit drawing runs tolerate
-  newer messages, but not changes to the captured canvas or an expired lease.
-- `scripts/conversation-cases.ts` holds timestamped prompts and expected canvas
-  states. `npm run test:conversations` runs two headless scenarios against a real
-  temporary room server with controlled model responses. The color case holds the
-  first result so a second speaker arrives during creation. These fixtures address
-  Kan explicitly; they do not authorize mutations from ambient conversation.
-- `npm run test:conversations -- --live` uses the real local Devin ACP provider,
-  with native/filesystem/terminal tools denied. Optional `--model <model>` and
-  `--case colors|solar-system` narrow comparisons. It prints input/action timestamps,
-  queue-inclusive lag, execution path, actual nodes and semantic assertions.
-  `--strict-latency` also fails on any action lag of 3 seconds or more. Controlled
-  timings are not model-quality or live-provider performance evidence.
+  to the agent.
 - Native regression: `node scripts/drawing.e2e.mjs` from the catalog with the Tauri
   driver running. `--live` exercises the connected provider. It uses a temporary
   canvas and restores the page; do not drive concurrently. `TAURI_WEBDRIVER_URL`
-  selects an isolated app. No agent-side post-generation review pass is used.
+  selects an isolated app.
 
 ## Galtea native evaluations
 
@@ -850,27 +722,6 @@ build or substitute a previous DMG when a fresh build fails.
   the unused video and poster are excluded from CLI deployment uploads. Verify
   mobile layout, signup failure/retry behavior, FAQ keyboard controls, and image
   requests in a production preview.
-- For an integrated live demo, `node scripts/record-product-demo.mjs --brief`
-  prints the scenario; `--check` reads readiness without screenshots or app
-  mutations. `--record --consent --seconds 90 --output /tmp/kan-live-demo.mp4`
-  captures a visible native room with two playing camera feeds, live captions,
-  open chat, and a connected local AI. It never joins calls or sends prompts.
-  Obtain participant/public-use consent and approval for live-service usage first.
-  Output is private, refuses existing files, and must be reviewed before copying
-  into public assets. Capture is picture-only by default; `--microphone N`
-  explicitly records AVFoundation audio device N. Verify the current device list
-  before using an index. `--solo` permits one playing camera for a solo narrated
-  walkthrough, not a multi-person demonstration. The recorder waits for readiness
-  before a three-second countdown. It preserves elapsed time by holding frames
-  between screenshots rather than silently accelerating slow captures.
-  Caption/call/visibility loss stops recording with partial footage.
-  `TAURI_WEBDRIVER_URL` and `FFMPEG_BIN` select the driver and encoder. Run
-  `node --test scripts/record-product-demo.test.mjs` for recorder unit checks;
-  these do not establish that a real session has been recorded. The combined
-  live microphone/image-pipe path stalled during the solo take, leaving an invalid
-  48-byte MP4, and the interrupt handler did not unblock the encoder. Do not use
-  it for another full take until a short end-to-end audio/video test passes;
-  native macOS window recording is the proposed alternative, not yet verified.
 
 ## Editorial landing design
 

@@ -34,8 +34,9 @@
     "build:web": "npm run build -w @kan/web",
     "typecheck:web": "npm run typecheck -w @kan/web",
     "dev:server": "npm run dev -w @kan/server",
-    "dev:agent": "npm run dev -w @kan/web-agent",
-    "typecheck:backend": "npm run typecheck -w @kan/server"
+    "dev:agent": "cd apps/web-agent && node --env-file-if-exists=../../.env.local ../../node_modules/eve/bin/eve.js dev",
+    "typecheck:backend": "npm run typecheck -w @kan/server",
+    "start:agent": "cd apps/web-agent && node --env-file-if-exists=../../.env.local ../../node_modules/eve/bin/eve.js build && node --env-file-if-exists=../../.env.local ../../node_modules/eve/bin/eve.js start"
   },
   "devDependencies": {
     "turbo": "^2.11.2",

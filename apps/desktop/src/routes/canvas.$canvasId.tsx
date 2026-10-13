@@ -1,5 +1,5 @@
 import * as React from "react";
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { RiAlertLine, RiArrowLeftLine } from "@remixicon/react";
 
 import { HeaderBar } from "../components/HeaderBar";
@@ -7,8 +7,6 @@ import { Canvas } from "../components/Canvas";
 import { ChatPanel, ChatReopenButton } from "../components/ChatPanel";
 import { AgentProvider } from "../components/agent-context";
 import { CanvasProvider, useCanvas } from "../components/canvas-context";
-import { SharingHintBanner } from "../components/SharingHintBanner";
-import { PublishConfirmationDialog } from "../components/PublishConfirmationDialog";
 import { WorkspacePanels } from "../components/WorkspacePanels";
 import { useCanvasThumbnail } from "../components/use-canvas-thumbnail";
 import { Spinner } from "../components/ui/spinner";
@@ -17,7 +15,6 @@ import {
   touchCanvas,
   type CanvasCatalogEntry,
 } from "@/lib/canvas-repository";
-import { publishCanvas } from "@/lib/publish-canvas";
 
 export const Route = createFileRoute("/canvas/$canvasId")({
   component: CanvasPage,
@@ -25,15 +22,11 @@ export const Route = createFileRoute("/canvas/$canvasId")({
 
 function CanvasPage() {
   const { canvasId } = Route.useParams();
-  const navigate = useNavigate();
 
   const [canvasEntry, setCanvasEntry] =
     React.useState<CanvasCatalogEntry | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [threadOpen, setThreadOpen] = React.useState(true);
-  const [publishDialogOpen, setPublishDialogOpen] = React.useState(false);
-  const [isPublishing, setIsPublishing] = React.useState(false);
-  const [publishError, setPublishError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let active = true;
@@ -96,19 +89,6 @@ function CanvasPage() {
           canvasId={canvasId}
           threadOpen={threadOpen}
           setThreadOpen={setThreadOpen}
-          publishDialogOpen={publishDialogOpen}
-          setPublishDialogOpen={setPublishDialogOpen}
-          isPublishing={isPublishing}
-          setIsPublishing={setIsPublishing}
-          publishError={publishError}
-          setPublishError={setPublishError}
-          onPublishSuccess={(roomId) => {
-            void navigate({
-              to: "/room/$roomId",
-              params: { roomId },
-              replace: true,
-            });
-          }}
         />
       </CanvasProvider>
     </AgentProvider>
@@ -120,69 +100,23 @@ function CanvasPageContent({
   canvasId,
   threadOpen,
   setThreadOpen,
-  publishDialogOpen,
-  setPublishDialogOpen,
-  isPublishing,
-  setIsPublishing,
-  publishError,
-  setPublishError,
-  onPublishSuccess,
 }: {
   canvasEntry: CanvasCatalogEntry;
   canvasId: string;
   threadOpen: boolean;
   setThreadOpen: (open: boolean) => void;
-  publishDialogOpen: boolean;
-  setPublishDialogOpen: (open: boolean) => void;
-  isPublishing: boolean;
-  setIsPublishing: (pub: boolean) => void;
-  publishError: string | null;
-  setPublishError: (err: string | null) => void;
-  onPublishSuccess: (roomId: string) => void;
 }) {
   const { editor } = useCanvas();
   useCanvasThumbnail(editor, canvasId);
 
-  const handleConfirmPublish = async () => {
-    setIsPublishing(true);
-    setPublishError(null);
-    try {
-      const result = await publishCanvas({
-        localCanvasId: canvasId,
-        name: canvasEntry.name,
-        editor,
-      });
-      setPublishDialogOpen(false);
-      onPublishSuccess(result.room.id);
-    } catch (err) {
-      setPublishError(
-        err instanceof Error
-          ? err.message
-          : "Failed to publish canvas to server",
-      );
-      setIsPublishing(false);
-    }
-  };
-
   return (
     <div className="workspace">
-      <HeaderBar
-        title={canvasEntry.name}
-        mode="offline"
-        onMakeOnline={() => {
-          setPublishError(null);
-          setPublishDialogOpen(true);
-        }}
-        isPublishing={isPublishing}
-      />
+      <HeaderBar title={canvasEntry.name} />
       <main className="workspace__body relative">
         <WorkspacePanels
           chatOpen={threadOpen}
           canvas={
-            <>
-              <SharingHintBanner onMakeOnline={() => setPublishDialogOpen(true)} />
-              <Canvas roomId={canvasId} />
-            </>
+            <Canvas roomId={canvasId} />
           }
           chat={
             <ChatPanel
@@ -194,16 +128,6 @@ function CanvasPageContent({
         />
         {!threadOpen ? <ChatReopenButton onClick={() => setThreadOpen(true)} /> : null}
       </main>
-
-      <PublishConfirmationDialog
-        open={publishDialogOpen}
-        isPublishing={isPublishing}
-        error={publishError}
-        onConfirm={handleConfirmPublish}
-        onCancel={() => {
-          if (!isPublishing) setPublishDialogOpen(false);
-        }}
-      />
     </div>
   );
 }

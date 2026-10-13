@@ -6,13 +6,11 @@ import { Spinner } from "./ui/spinner";
 import { ASSISTANT_EAGERNESS, DEFAULT_EAGERNESS, type AssistantEagerness } from "@kan/protocol";
 import { fromChimeIn, toChimeIn, type AssistantScope, type ChimeIn } from "@/lib/assistant-settings";
 
-import { getServerRunContext, heartbeatServerRun, patchServerRoom, patchServerRun, completeServerRun } from "@/lib/api-client";
 import { useCanvas } from "./canvas-context";
-import { RoomAssistantSettings } from "./RoomAssistantSettings";
 import { assistantCanvasRecords, applyAssistantOperations } from "@/lib/assistant-canvas";
 import type { AgentEntry, AgentStep, OfferEntry, SuggestionEntry, ThreadEntry, TriggerEntry } from "@/lib/thread";
 import { PENDING_SEQ } from "@/lib/thread";
-import { createWsTransport, type RoomTransport } from "@/lib/room-transport";
+import type { RoomTransport } from "@/lib/transport";
 
 import { createLocalTransport, type LocalTransport } from "@/lib/local-transport";
 import { useAgent } from "./agent-context";
@@ -70,7 +68,6 @@ function withoutId(ids: ReadonlySet<string>, id: string) {
 /** One run that did not finish, in the terms you would need to explain why. */
 interface RunFailure {
   at: string;
-  online: boolean;
   mode: "act" | "context" | "propose";
   /** `report` means the failure itself could not be handed to the room. */
   phase: LeasePhase | "report";
@@ -95,16 +92,12 @@ function describeError(error: unknown): string {
  */
 export function ChatPanel({
   roomId,
-  online = false,
   roomTransport,
-  transcription,
   onClose,
   className,
 }: {
   roomId?: string;
-  online?: boolean;
   roomTransport?: RoomTransport;
-  transcription?: { status: string; error: string | null; retry: () => void };
   onClose?: () => void;
   className?: string;
 }) {
@@ -117,7 +110,6 @@ export function ChatPanel({
   const [userId, setUserId] = React.useState(DEFAULT_USER);
   const [assistantScope, setAssistantScope] = React.useState<AssistantScope>(() => readAssistantSettings(roomId).scope);
   const [backgroundChecks, setBackgroundChecks] = React.useState(() => readAssistantSettings(roomId).background);
-  const [assistantPaused, setAssistantPaused] = React.useState(false);
   const [eagerness, setEagerness] = React.useState<AssistantEagerness>(() => readAssistantSettings(roomId).eagerness);
   /**
    * Which room the three settings above currently hold.
@@ -166,7 +158,6 @@ export function ChatPanel({
 
   const transport = React.useMemo<RoomTransport>(() => {
     if (roomTransport) return roomTransport;
-    if (online && roomId) return createWsTransport(roomId);
     return createLocalTransport({
       canvasId: roomId ?? fallbackCanvasId.current,
       get userId() { return userIdRef.current; },
@@ -176,7 +167,7 @@ export function ChatPanel({
         return applyAssistantOperations(editorRef.current, operations, provenance);
       },
     });
-  }, [online, roomId, roomTransport]);
+  }, [roomId, roomTransport]);
 
   const [entries, setEntries] = React.useState<ThreadEntry[]>([]);
   const entryOrderRef = React.useRef(new Map<string, number>());
@@ -185,7 +176,7 @@ export function ChatPanel({
     new Set()
   );
   useQaSource("chat", () => ({
-    roomId, online, entries, pendingIds: [...pendingIds],
+    roomId, entries, pendingIds: [...pendingIds],
     runFailures: runFailures.current,
   }));
   const models = agent.status.models?.available ?? [];
@@ -228,7 +219,6 @@ export function ChatPanel({
         if (!entryOrderRef.current.has(line.id)) entryOrderRef.current.set(line.id, nextEntryOrderRef.current++);
       }
       setRoomSnapshot(snapshot);
-      if (snapshot.ready && snapshot.room?.assistantPaused !== undefined) setAssistantPaused(snapshot.room.assistantPaused);
       if (snapshot.ready && snapshot.room?.assistantEagerness) setEagerness(snapshot.room.assistantEagerness);
     });
   }, [transport, upsert]);
@@ -252,16 +242,13 @@ export function ChatPanel({
       mode: trigger.mode,
       getContext: async (signal) => {
         if (signal.aborted) throw new DOMException("assistant turn cancelled", "AbortError");
-        if (!online) return (transport as LocalTransport).getLocalContext(lease.runId);
-        const value = await getServerRunContext(roomId!, lease.runId, lease.leaseToken);
-        return { revision: value.revision, value };
+        return (transport as LocalTransport).getLocalContext(lease.runId);
       },
       run: (mode, context, signal) => runAssistantTurn({ ready: agent.status.state === "ready", agentId: agent.status.agent ?? "Kan", run: (nextMode, nextContext, nextSignal) => agent.runStructured(nextMode, nextContext, nextSignal, trigger.anchors, lease.runId) }, mode, context, signal),
-      heartbeat: () => online ? heartbeatServerRun(roomId!, lease.runId, lease.leaseToken) : (transport as LocalTransport).heartbeatLocal(lease.runId),
+      heartbeat: () => (transport as LocalTransport).heartbeatLocal(lease.runId),
       complete: (input, signal) => {
         if (signal.aborted) return Promise.reject(new DOMException("assistant turn cancelled", "AbortError"));
-        if (!online) return (transport as LocalTransport).completeLocal(lease.runId, input);
-        return completeServerRun(roomId!, lease.runId, input, lease.leaseToken);
+        return (transport as LocalTransport).completeLocal(lease.runId, input);
       },
       fail: async (status, failure) => {
         const reason = describeError(failure.error);
@@ -269,15 +256,14 @@ export function ChatPanel({
         // Record before telling the room, so a failure that itself fails to be
         // reported still leaves a trace.
         recordRunFailure({
-          at: new Date().toISOString(), online, mode: trigger.mode, phase: failure.phase, status,
+          at: new Date().toISOString(), mode: trigger.mode, phase: failure.phase, status,
           triggerId: trigger.triggerId, attempt: trigger.attempt, runId: lease.runId, reason,
         });
         try {
-          if (online) await patchServerRun(roomId!, lease.runId, lease.leaseToken, { id: crypto.randomUUID(), status });
-          else await (transport as LocalTransport).failLocal(lease.runId, status);
+          await (transport as LocalTransport).failLocal(lease.runId, status);
         } catch (error) {
           recordRunFailure({
-            at: new Date().toISOString(), online, mode: trigger.mode, phase: "report", status,
+            at: new Date().toISOString(), mode: trigger.mode, phase: "report", status,
             triggerId: trigger.triggerId, attempt: trigger.attempt, runId: lease.runId, reason: describeError(error),
           });
         }
@@ -288,7 +274,7 @@ export function ChatPanel({
       if (activeLease.current === execution) activeLease.current = undefined;
       setLeaseRevision((revision) => revision + 1);
     });
-  }, [agent, online, recordRunFailure, roomId, transport]);
+  }, [agent, recordRunFailure, transport]);
 
   React.useEffect(() => {
     if (!roomId || !roomSnapshot.ready || !roomSnapshot.sessionId || agent.status.state !== "ready") return;
@@ -296,14 +282,14 @@ export function ChatPanel({
       if (entry.kind !== "trigger" || entry.status !== "offered" || entry.assigneeSessionId !== roomSnapshot.sessionId) continue;
       void executeTrigger(entry).catch(reportError);
     }
-  }, [agent.status.state, entries, executeTrigger, leaseRevision, online, reportError, roomId, roomSnapshot.ready, roomSnapshot.sessionId]);
+  }, [agent.status.state, entries, executeTrigger, leaseRevision, reportError, roomId, roomSnapshot.ready, roomSnapshot.sessionId]);
 
   React.useEffect(() => {
     const active = activeLease.current;
     if (!active) return;
     const trigger = roomSnapshot.triggers.find((candidate) => candidate.id === active.triggerId);
-    if (!roomSnapshot.connected || agent.status.state !== "ready" || (online && assistantPaused && active.mode !== "act") || (trigger && ["cancelled", "failed", "expired"].includes(trigger.status))) active.controller.abort();
-  }, [agent.status.state, assistantPaused, online, roomSnapshot]);
+    if (!roomSnapshot.connected || agent.status.state !== "ready" || (trigger && ["cancelled", "failed", "expired"].includes(trigger.status))) active.controller.abort();
+  }, [agent.status.state, roomSnapshot]);
   React.useEffect(() => () => { activeLease.current?.controller.abort(); }, [transport]);
 
   React.useEffect(() => {
@@ -370,8 +356,7 @@ export function ChatPanel({
     setAssistantScope(next.scope);
     if (!next.eagerness) return;
     setEagerness(next.eagerness);
-    if (online && roomId) void patchServerRoom(roomId, { assistantEagerness: next.eagerness }).catch(() => undefined);
-  }, [online, roomId]);
+  }, []);
 
   /**
    * The one transient line above the stream.
@@ -392,17 +377,14 @@ export function ChatPanel({
         </>
       );
     }
-    const error = actionError ?? roomSnapshot.error ?? transcription?.error;
+    const error = actionError ?? roomSnapshot.error;
     if (!error) return null;
     return (
       <>
         <span role="status" className="flex-1 text-destructive">{error}</span>
-        {transcription?.error === error ? (
-          <Button variant="outline" size="xs" onClick={transcription.retry}>Retry</Button>
-        ) : null}
       </>
     );
-  }, [actionError, agent, roomSnapshot.error, transcription]);
+  }, [actionError, agent, roomSnapshot.error]);
 
   /**
    * Steps for turns that have already ended.
@@ -473,32 +455,9 @@ export function ChatPanel({
           agentName={agent.status.agent ?? undefined}
           chimeIn={chimeIn}
           onChimeInChange={applyChimeIn}
-          room={
-            online && roomId
-              ? {
-                  lend: assistantScope === "room",
-                  onLendChange: (value) => setAssistantScope(value ? "room" : "own"),
-                  backgroundChecks,
-                  onBackgroundChecksChange: setBackgroundChecks,
-                  paused: assistantPaused,
-                  onPausedChange: (value) => {
-                    setAssistantPaused(value);
-                    void patchServerRoom(roomId, { assistantPaused: value }).catch(reportError);
-                  },
-                  settings: roomSnapshot.room ? (
-                    <RoomAssistantSettings
-                      room={roomSnapshot.room}
-                      disabled={!roomSnapshot.ready}
-                      onSave={async (settings) => (await patchServerRoom(roomId, settings)).room}
-                    />
-                  ) : undefined,
-                }
-              : undefined
-          }
         />
       }
       status={status}
-      footerStatus={transcription ? <span>{transcription.status}</span> : undefined}
       onClose={onClose}
       onJumpToNode={jumpToNode}
       resolveAnchorLabel={labelForNode}

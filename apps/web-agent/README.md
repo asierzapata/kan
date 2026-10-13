@@ -25,6 +25,12 @@ production.
 
 ## Configuration
 
+From the repository root, `npm run dev:agent` and `npm run start:agent` (build, then
+start) run eve from this directory with the root `.env.local` preloaded
+(`node --env-file-if-exists`). `eve dev` alone only reads env files in this
+directory and `eve start` reads none, so use the root scripts or export the
+variables yourself.
+
 | Variable | Purpose |
 | --- | --- |
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway credential for the model. |

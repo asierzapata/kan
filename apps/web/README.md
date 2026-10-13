@@ -37,6 +37,23 @@ The tldraw license is a publishable `VITE_TLDRAW_LICENSE_KEY`.
 
 ## Production environment
 
+### Git deployments
+
+`kan-web` uses `asierzapata/kan` with the repository root as its Vercel Root
+Directory. The root `vercel.ts` selects the deployment by `VERCEL_PROJECT_ID`:
+the web and staging project IDs build `apps/web` (TanStack Start) together with
+`apps/web-agent` (eve), with the private `EVE_INTERNAL_URL` service binding.
+Other projects retain the marketing build for `apps/site`. Keep Vercel's
+automatic system environment variables enabled so project selection works on
+both production and preview branches. Do not set the project root to `apps/web`:
+the app imports desktop/shared source and needs its peer agent service.
+
+The Git configuration builds the maintained source directly; `stage.mjs` remains
+available for isolated manual packaging. For manual deployment from the repo,
+specify and verify the web project's ID and team ID explicitly. Never rely on
+an implicit root-directory project link. Root `npm run build` is not the web
+deployment command: it also builds the desktop and other workspaces.
+
 Production uses the separate `kan-web` Vercel project
 `prj_duGsOn7h4StAHdG5M5YMPp1qlbWS` in team
 `team_akRYoQmwKh1BfjdZhygO8zbp`, with domain `app.getkan.dev` and London

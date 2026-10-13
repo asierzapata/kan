@@ -9,3 +9,6 @@ export function useAuth() {
     },
   };
 }
+
+const unavailable = async () => ({ error: { message: "The UI fixture has no auth backend." } });
+export const authClient = { signIn: { email: unavailable }, signUp: { email: unavailable } };

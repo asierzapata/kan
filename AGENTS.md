@@ -11,8 +11,10 @@ repo root; the root scripts delegate into the workspace that owns the work.
 
 ```
 apps/desktop/        the Tauri app — src/, src-tauri/, index.html, vite.config.ts
-apps/room-server/    the backend
-apps/agent-runner/
+apps/server/         the single Node backend: Hono + ws, Better Auth, rooms, scheduler, assets
+apps/web/            the browser app (Vite SPA, served by apps/server in production)
+apps/web-agent/      self-hosted eve agent that edits canvases through apps/server
+packages/web-core/   persistence, migrations, backup (shared by apps/server and scripts/web)
 packages/protocol/   zod wire schemas, shared
 packages/nodes/      pure shared tldraw schema (renderers live in apps/desktop)
 scripts/drive.mjs    WebDriver client, stays at the root
@@ -23,7 +25,8 @@ dependencies. `@/*` resolves relative to `apps/desktop/tsconfig.json`, so it
 kept working across the move.
 
 `turbo.json` defines `build`, `typecheck`, `test` and `dev`. Only the first
-three go through turbo — they are cacheable and fan out across workspaces, and
+three go through turbo (`typecheck` and `build` cover desktop, site, web, web-agent
+and server; `test` covers the workspaces that define a `test` script) — they are cacheable and fan out across workspaces, and
 `build` restores `dist/` from the cache rather than re-running Vite.
 
 `dev`, `preview` and `tauri:drive` stay as direct `-w @kan/desktop` delegation
@@ -44,7 +47,7 @@ firing, you haven't run `npm install` since they landed.
 | Hook         | Runs                                                  | Cost      |
 | ------------ | ----------------------------------------------------- | --------- |
 | `pre-commit` | typecheck, **only the workspaces the commit touches** | seconds   |
-| `pre-push`   | typecheck + tests + build, everything                 | ~10s warm |
+| `pre-push`   | `turbo` typecheck, `turbo` tests, `turbo` build       | ~10s warm |
 
 Both block on failure. Bypass with `git commit --no-verify` / `git push
 --no-verify`, or `KAN_SKIP_HOOKS=1` for both. Use the bypass when you are
@@ -57,12 +60,16 @@ Two things to know about them:
   once and a stash mid-write is how you lose someone else's work. The trade is
   that a partially-staged commit can pass the hook and still be broken.
 - **`tsx --test` exits 0 when its glob matches nothing**, which reads as a pass
-  and is not one. `pre-push` counts the test files first and warns loudly on an
-  empty suite rather than letting it show green.
+  and is not one. `pre-push` counts the files in `apps/server/test` first and
+  warns loudly on an empty suite rather than letting it show green.
 
-Scoping lives in `.githooks/_scope.sh`: `apps/desktop/*` checks the frontend,
-`apps/room-server/*` and `apps/agent-runner/*` check the backend, and
-`packages/*` or a root config change checks both.
+Scoping lives in `.githooks/_scope.sh` and sets two flags. `apps/desktop/*`
+turns on the desktop check (`turbo` typecheck of `@kan/desktop`).
+`apps/web/*`, `apps/web-agent/*`, `apps/server/*` and `packages/web-core/*` turn
+on the web check, which typechecks `@kan/web`, `@kan/web-agent` and `@kan/server`.
+Any other `packages/*` change, and `package.json`, `package-lock.json` or
+`turbo.json`, turn on both. `pre-push` ignores scoping: it typechecks, tests and
+builds every workspace through turbo.
 
 ## Commands
 
@@ -76,7 +83,13 @@ Scoping lives in `.githooks/_scope.sh`: `apps/desktop/*` checks the frontend,
 | Build one workspace       | `npx turbo run build --filter=@kan/desktop`           |
 | Typecheck (frontend only) | `npm run typecheck -w @kan/desktop`                   |
 | Production build          | `npm run build`                                       |
-| Room server               | `npm run server`                                      |
+| Web server (dev)          | `npm run dev:server` — **:8787**, PGlite under `data/server` |
+| Web server (plain)        | `npm run server` — `tsx apps/server/src/main.ts`      |
+| Web app (dev)             | `npm run dev:web` — **:1430**, proxies `/api` and `/sync` to :8787 |
+| Web agent (dev)           | `npm run dev:agent` — `eve dev`, interactive          |
+| Web typecheck             | `npm run typecheck:web`                               |
+| Web-core tests            | `npm run test:web`                                    |
+| Server tests              | `npm run test:backend` (= `npm run test -w @kan/server`) |
 
 `tauri.conf.json` points `devUrl` at `http://localhost:1420`, so the port is
 fixed — if it's taken, the dev server fails rather than picking another.
@@ -111,7 +124,7 @@ already cost time. The short version:
 ## Agent runner (Devin, OpenAI)
 
 The ACP client lives in Rust (`apps/desktop/src-tauri/src/agent.rs`), inside the
-desktop app rather than in the `apps/agent-runner/` workspace: it spawns an ACP
+desktop app: it spawns an ACP
 server, speaks JSON-RPC over stdio, and forwards `session/update` notifications
 to the webview as `agent:update` events. The webview side is
 `apps/desktop/src/components/agent-context.tsx` (provider + `useAgent`), the
@@ -189,12 +202,12 @@ The agent never touches tldraw directly; it goes through the tool layer.
   `node scripts/drive.mjs eval 'window.__kan.tools.getCanvas()'`.
 
 The rich node tools currently operate on offline desktop canvases; they are
-not wired into the room server's MCP tools or shared `kan-node` wire schema.
+not wired into a server-side tool layer or a shared `kan-node` wire schema.
 The local Devin ACP path is wired to those offline tools through a loopback
 `kan-canvas` MCP bridge. The bridge is exposed only during an active prompt on
 the current offline canvas, validates every request with the same zod schemas,
 and approves only correlated canvas tool calls; filesystem and terminal calls
-remain denied. Online canvases retain only the shared renderer; publishing
+remain denied. Online canvases retain only the shared renderer (the web app's server-side tools live in `apps/server/src/planner.ts`); publishing
 rich-node snapshots requires that follow-up schema integration. Offline canvases
 register both renderers, preserve duplicated initial records, and reuse
 `CanvasProvider`.
@@ -245,35 +258,84 @@ accept them. Arrow bindings need `snap: "none"` in tldraw 5; labels are
   `ComponentProps<"svg">`. Re-adding it via the shadcn CLI reintroduces a type
   error, because remixicon icons reject `children`.
 
-## Backend verification and integration
+## Web backend (apps/server)
 
-The authoritative implemented contract is the new backend section of
-`ARCHITECTURE.md` and the schemas in `packages/protocol`, not its historical
-host/server-fallback or thread-route proposals. Use Node >=24 from the repo root:
+One Node 24 process (`apps/server`, run with tsx, no build step) is the whole web
+backend: Hono HTTP API, `ws` sync sockets, Better Auth, rooms, an in-process
+scheduler and the asset store. It also serves the built SPA from `KAN_WEB_DIST`.
+**It owns rooms in memory, so exactly one instance may run.** Two instances would
+need sticky routing by canvas; that is not supported.
 
-| Task                           | Command                     |
-| ------------------------------ | --------------------------- |
-| Room server (default :8787)    | `npm run server`            |
-| Standalone scoped ACP executor | `npm run runner`            |
-| Backend TypeScript             | `npm run typecheck:backend` |
-| Backend runtime tests          | `npm run test:backend`      |
-
-`apps/agent-runner` is a separate Node/tsx executor, not a replacement for the
-existing Rust Devin integration above. Automatic claiming defaults off; configure
-its explicit local command and identity through the documented `KAN_*` variables.
-No real vendor agent or paid provider is needed for the backend tests: they use
-real HTTP/WS, genuine tldraw clients, fake ACP subprocesses with real MCP stdio,
-and private temporary directories. Check the actual test count and server output.
-A passing desktop build is not native UI coverage; desktop room/runner/video
-integration still requires the Tauri driver and the existing e2e guidance.
+- **Rooms.** Each open canvas is a tldraw `TLSocketRoom` over `SQLiteSyncStorage`
+  in `${KAN_DATA_DIR}/rooms.sqlite` (`node:sqlite`, WAL). `TLSyncStorage` is
+  synchronous by contract, which is why Postgres cannot be the storage itself.
+  Postgres is written behind: `storage.onChange` debounces 500 ms, flushes are
+  serialized per room, and failures retry with backoff (1 s to 30 s). A room whose
+  local disk is lost reseeds from Postgres on open; one whose local clock is at
+  least the persisted one reuses the local store. `revision` is tldraw's
+  `documentClock`. Idle rooms are flushed and evicted by `RoomManager.tick`.
+- **Agent writes.** `RoomManager.applyTool` runs inside the room's queue: receipt
+  check, `assertActor` (membership and active run), flush pending human edits,
+  `expectedRevision` check (409), plan, `updateStore`, labeled flush. Every call
+  leaves a `web_events` receipt with `operation = <run>:<callId>`, even when
+  nothing changed. Undo (`revertRun`) reads those receipts.
+- **Asset `src` rule.** A record's `src` must be `https://` or an owned
+  `/api/assets?id=<uuid>` (an `https://…/api/assets?id=` URL needs an owned id
+  too). It is enforced in `authorizeRecord` for `asset` records and `kan-image`
+  shapes, and in `applyTool` for agent puts (400). It must not live in
+  `Persistence.persist`: sync edits are acknowledged by SQLite before Postgres
+  sees them, so a rejected human batch would retry forever.
+- **Migrations** are in `packages/web-core/migrations/*.sql`, concatenated into
+  `src/migration.mjs` (a test checks they match) and additive only. `005.sql`
+  moves the `web_events` primary key from `(room, revision)` to `(room, seq)`,
+  dropping the old key only if it still covers `revision`. `006.sql` creates the
+  Better Auth tables (`"user"`, `"session"`, `"account"`, `"verification"`) in
+  schema `kan_web_v1`. Append new files; never edit applied ones.
+- **Auth.** Better Auth, email + password, no verification, mounted at
+  `/api/auth/*`, `BETTER_AUTH_SECRET`. Sessions are local rows;
+  `assertActiveSession(userId, sessionId)` is a DB check cached for 30 s (512
+  entries). It guards HTTP, sync upgrades, run dispatch and the scheduler's
+  30 s `recheck`, which kicks sockets whose session or role changed.
+- **Scheduler** (`scheduler.ts`) replaces the old Durable Object alarm, cron and
+  `/wake`: `wake(canvas)` dispatches queued runs after 100 ms, re-arms every 3 s
+  while pending (backoff to 30 s on error), and a 60 s sweep finds stuck canvases.
+- **Internal API.** `POST /api/web/internal` needs `Authorization: Bearer
+  ${KAN_SERVICE_SECRET}`. It accepts only `tool` (agent calls) and `arm-recovery`
+  (works only with `KAN_ENV=staging`).
+- **Environment** (`apps/server/src/config.ts`, zod; root `.env.local` is loaded
+  without overriding the environment): `PORT` (8787), `KAN_DATA_DIR`
+  (`data/server`), `DATABASE_URL` (unset = embedded PGlite, development only),
+  `KAN_ENV`, `KAN_SERVICE_SECRET`, `KAN_PUBLIC_URL` (browser origin; write-origin
+  check, cookies, sync URL), `BETTER_AUTH_SECRET`, `EVE_URL` (required outside
+  development; unset in development fails runs with `server.agent_unconfigured`),
+  `KAN_RUN_CEILING`, `KAN_CONTEXT_RUN_CAP`, `KAN_WEB_DIST`, and `S3_BUCKET`,
+  `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+  `S3_FORCE_PATH_STYLE` (unset bucket = local disk assets, development only).
+- **Agent.** `apps/web-agent` is a self-hosted eve agent:
+  `cd apps/web-agent && npx eve build && PORT=3100 KAN_SERVICE_SECRET=… WEB_API_URL=http://localhost:8787/api/web AI_GATEWAY_API_KEY=… npx eve start --port 3100`,
+  with the server's `EVE_URL=http://localhost:3100`. `WORKFLOW_POSTGRES_URL` (set at
+  build/start) switches durable workflow state to `@workflow/world-postgres`.
+- **Tests.** `npm run test -w @kan/server` (65 tests: real HTTP/WS, genuine tldraw
+  pushes, PGlite, real Better Auth; no paid provider) and `npm run test:web`
+  (web-core: meeting, migration, policy). End-to-end was driven with Playwright
+  (not committed): sign up two users, create workspace and canvas, invite the
+  second as editor, check edits sync both ways, then restart the server with
+  SIGINT, once deleting `rooms.sqlite*` (restore from Postgres) and once not
+  (`server.room_loaded` logs `source: postgres` or `local`).
+- **Known limitations.** `run/revert` runs outside a transaction (it calls
+  `applyTool`, which needs its own connection), so concurrent reverts can both
+  run. The PGlite Kysely dialect (`src/kysely-pglite.ts`) shares one connection and
+  does not serialize concurrent transactions (dev only). The agent turn has not
+  yet been exercised against a live eve in this topology (no
+  `AI_GATEWAY_API_KEY` was available). The desktop app's online-room features
+  still point at the removed room server: `api-client.ts`, `room-transport.ts`,
+  `use-room-video.ts`, publish/duplicate/delete canvas, `JoinRoomDialog` and the
+  room routes.
 
 `@kan/nodes` supplies the pure shared schema; the renderer is in
-`apps/desktop/src/lib/canvas-shapes.tsx`. Preserve parallel desktop work and keep
-wire-schema changes coordinated. SQLite files/WAL files and `/data/` are ignored;
-use temporary `KAN_DATA_DIR` fixtures for verification. Append migrations instead
-of deleting user data. Keep installation credentials in the parent; pass only
-scoped run leases to MCP, obtain fresh socket tickets on reconnect, and never log
-credentials, lease tokens or ticket URLs. The runner is not an OS sandbox.
+`apps/desktop/src/lib/canvas-shapes.tsx`. SQLite files/WAL files and `/data/` are
+ignored; use temporary `KAN_DATA_DIR` fixtures for verification. Never log
+credentials, service secrets or ticket URLs.
 
 ## Timeline and calendar nodes
 
@@ -363,6 +425,8 @@ credentials, lease tokens or ticket URLs. The runner is not an OS sandbox.
 
 ## Online room video
 
+> The room server these features talked to was removed in the single-server rewrite; the desktop code remains but has no backend until re-pointed at apps/server.
+
 - Every online room entry mounts `RoomPrejoin` before canvas sync or Vonage connects.
   Device previews are local; `Join room` is the publication boundary. The room route
   owns capture so the selected tracks survive the transition, and cancellation or
@@ -439,10 +503,11 @@ credentials, lease tokens or ticket URLs. The runner is not an OS sandbox.
   well as HMR queries. Resolve React/ReactDOM URLs from transformed `src/main.tsx`;
   importing bare optimized-dependency URLs can create a second React dispatcher.
 - Focused tests: `npx tsx --tsconfig apps/desktop/tsconfig.json --test apps/desktop/test/agent-diagnostics.test.ts`,
-  `npx tsx --test apps/agent-runner/test/diagnostics.test.ts`, and
   `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`.
 
 ## Live room transcription
+
+> The room server these features talked to was removed in the single-server rewrite; the desktop code remains but has no backend until re-pointed at apps/server.
 
 - Vonage captions start after microphone publication, through authenticated
   `POST /rooms/:id/captions`. The moderator token stays server-side; client video
@@ -467,7 +532,8 @@ credentials, lease tokens or ticket URLs. The runner is not an OS sandbox.
   Deploy the room server and desktop together: old servers do not understand the
   new transcript socket messages. Vonage live captions are usage-billed.
 - Focused checks: `npx tsx --tsconfig apps/desktop/tsconfig.json --test
-  apps/desktop/test/transcription.test.ts apps/room-server/test/transcription.test.ts`.
+  apps/desktop/test/transcription.test.ts` (the room-server transport test went
+  with that workspace).
   These cover controlled SDK events, rendering, real HTTP/WebSocket transport,
   replay, attribution, and room isolation, not live-provider speech recognition.
 - A captions-only subscriber with `insertDefaultUI: false` must pass `undefined`
@@ -477,6 +543,10 @@ credentials, lease tokens or ticket URLs. The runner is not an OS sandbox.
   this integration failure.
 
 ## Nebius Token Factory classifier
+
+> Historical: `apps/room-server` was removed in the single-server rewrite; the
+> files below no longer exist. Kept for context until the feature is re-pointed
+> at `apps/server` or dropped.
 
 - `apps/room-server/src/nebius-classifier.ts` is an opt-in provider for online
   room classification, not the offline desktop agent. `KAN_CLASSIFIER=nebius`
@@ -522,6 +592,10 @@ credentials, lease tokens or ticket URLs. The runner is not an OS sandbox.
   Checks: `node --import tsx --test apps/room-server/test/nebius-datalab.test.ts`.
 
 ## Prompts and timestamped conversation tests
+
+> Historical: `apps/room-server` was removed in the single-server rewrite; the
+> files below no longer exist. Kept for context until the feature is re-pointed
+> at `apps/server` or dropped.
 
 - All behavioral prompt text lives in `packages/protocol/src/prompts.ts`: shared
   core, explicit/context modes, drawing contract, local MCP, runner and classifier.

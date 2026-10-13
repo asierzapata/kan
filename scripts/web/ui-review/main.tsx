@@ -1,4 +1,4 @@
-// Local-only browser fixture. This entry is not part of the Start route tree.
+// Local-only browser fixture. This entry is not part of the router route tree.
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { WebApp } from "../../../apps/web/src/routes/index";

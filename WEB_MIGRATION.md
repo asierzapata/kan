@@ -1,5 +1,12 @@
 # Kan web migration — plan and implementation evidence
 
+> **Superseded.** The Vercel (TanStack Start), Cloudflare Durable Object/R2,
+> Neon-before-ack and WorkOS topology documented below is no longer what is in the
+> repository. The web backend is now the single Node server in `apps/server`
+> (Better Auth, SQLite hot store with Postgres write-behind, in-process scheduler).
+> See the "Web backend (apps/server)" section of `AGENTS.md`. The rest of this file
+> is kept as historical plan and acceptance evidence only.
+
 Plan date: 2026-10-04. Implementation audit: 2026-10-12.
 M1–M4 have maintained workspaces and staging implementations; the M3 live
 crash/retry gate and the M4 browser acceptance passed on hosted staging on

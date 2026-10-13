@@ -148,9 +148,16 @@ export class RoomManager {
     const local = SQLiteSyncStorage.hasBeenInitialized(wrapper)
       ? SQLiteSyncStorage.getDocumentClock(wrapper)
       : null;
+    const seeded = !(local !== null && local >= row.revision);
     const storage = new SQLiteSyncStorage<UnknownRecord>({
       sql: wrapper,
-      snapshot: local !== null && local >= row.revision ? undefined : row.snapshot,
+      snapshot: seeded ? row.snapshot : undefined,
+    });
+    this.log.info("server.room_loaded", {
+      canvas: canvasId,
+      source: seeded ? "postgres" : "local",
+      persisted: row.revision,
+      local,
     });
     const assetIds = new Set<string>(
       (await db.query("SELECT id FROM web_assets WHERE canvas=$1", [canvasId])).rows.map(
@@ -289,6 +296,12 @@ export class RoomManager {
       input: label?.input ?? null,
     });
     handle.lastPersisted = clock;
+    this.log.info("server.flush", {
+      canvas: handle.id,
+      revision: clock,
+      operation: label?.operation ?? null,
+      puts: documents.filter((d) => d.lastChangedClock > since).length,
+    });
     if (label && handle.pendingLabel?.operation === label.operation) handle.pendingLabel = null;
   }
 

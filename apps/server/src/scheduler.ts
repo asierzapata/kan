@@ -1,4 +1,3 @@
-import { assertActiveSession } from "./auth.ts";
 import type { Config } from "./config.ts";
 import type { Database } from "./database.ts";
 import { canvasAccess } from "./http.ts";
@@ -28,7 +27,7 @@ export interface SchedulerOptions {
   client: any;
   log?: Pick<Console, "error" | "warn" | "info">;
   now?: () => number;
-  verifySession?: (user: string, sessionId: string) => Promise<void>;
+  verifySession: (user: string, sessionId: string) => Promise<void>;
 }
 
 export class Scheduler {
@@ -81,8 +80,7 @@ export class Scheduler {
 
   async recheck() {
     const { rooms, db, config } = this.opts;
-    const verify =
-      this.opts.verifySession ?? ((user: string, sid: string) => assertActiveSession(config, user, sid));
+    const verify = this.opts.verifySession;
     for (const handle of rooms.handles()) {
       for (const [sessionId, session] of [...handle.sessions]) {
         try {
@@ -119,8 +117,7 @@ export class Scheduler {
     slot.running = true;
     slot.rearm = false;
     const { db, config, client } = this.opts;
-    const verify =
-      this.opts.verifySession ?? ((user: string, sid: string) => assertActiveSession(config, user, sid));
+    const verify = this.opts.verifySession;
     let next: number | null = null;
     try {
       const result = await dispatch(db, canvas, client, this.opts.now, verify, this.log);

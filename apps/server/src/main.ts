@@ -6,7 +6,7 @@ import { openDatabase } from "./database.ts";
 import { createServer } from "./server.ts";
 
 const config = loadConfig();
-const { db, persistence, close: closeDatabase } = await openDatabase(config);
+const { db, kysely, persistence, close: closeDatabase } = await openDatabase(config);
 mkdirSync(config.KAN_DATA_DIR, { recursive: true });
 const sqlite = new DatabaseSync(join(config.KAN_DATA_DIR, "rooms.sqlite"));
 sqlite.exec("PRAGMA journal_mode=WAL");
@@ -14,6 +14,7 @@ sqlite.exec("PRAGMA journal_mode=WAL");
 const app = createServer({
   config,
   db,
+  kysely,
   persistence,
   sqlite,
 });

@@ -3,16 +3,7 @@ import { join, relative, resolve } from "node:path";
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Persistence } from "@kan/web-core/persistence";
-import {
-  activeAuth,
-  clearSessionCookie,
-  handleCallback,
-  logoutUrl,
-  readAuth,
-  sessionCookie,
-  signInUrl,
-  type Auth,
-} from "./auth.ts";
+import type { AuthService } from "./auth.ts";
 import type { Config } from "./config.ts";
 import type { Database } from "./database.ts";
 import { createApi } from "./api.ts";
@@ -29,7 +20,7 @@ export interface AppContext {
   rooms: RoomManager;
   scheduler: Pick<Scheduler, "wake">;
   assets: AssetStore;
-  auth?: { activeAuth(request: Request): Promise<Auth> };
+  auth: AuthService;
   client?: any;
 }
 
@@ -49,7 +40,7 @@ export function createApp(context: AppContext) {
     return c.json({ error: "Service unavailable" }, 503);
   });
 
-  const auth = context.auth ?? { activeAuth: (request: Request) => activeAuth(config, request) };
+  const auth = context.auth;
   app.route("/api/web", createApi({ ...context, auth }));
   app.route(
     "/api/assets",
@@ -58,34 +49,8 @@ export function createApp(context: AppContext) {
 
   app.get("/healthz", (c) => c.json({ ok: true }, 200, { "cache-control": "no-store" }));
 
-  app.get("/api/auth/sign-in", (c) => {
-    const invite = c.req.query("invite");
-    const returnPathname =
-      invite && /^[A-Za-z0-9_-]{43}$/.test(invite) ? `/?invite=${invite}` : "/";
-    return c.redirect(signInUrl(config, returnPathname), 307);
-  });
-
-  app.get("/api/auth/callback", async (c) => {
-    const code = c.req.query("code");
-    if (!code) throw new HttpError(400, "Missing code");
-    const { sealedSession, returnPathname } = await handleCallback(config, code, c.req.query("state"));
-    c.header("set-cookie", sessionCookie(config, sealedSession));
-    return c.redirect(returnPathname, 302);
-  });
-
-  app.get("/api/auth/me", async (c) => {
-    const auth = await readAuth(config, c.req.header("cookie"));
-    if (!auth) return c.json({ error: "Your session expired. Sign in to continue." }, 401);
-    if (auth.setCookie) c.header("set-cookie", auth.setCookie);
-    const { id, email, firstName, lastName } = auth.user;
-    return c.json({ user: { id, email, firstName, lastName } });
-  });
-
-  app.post("/api/auth/sign-out", async (c) => {
-    const url = await logoutUrl(config, c.req.header("cookie"));
-    c.header("set-cookie", clearSessionCookie(config));
-    return c.json({ url: url ?? "/" });
-  });
+  const authHandler = auth.handler;
+  if (authHandler) app.on(["GET", "POST"], "/api/auth/*", (c) => authHandler(c.req.raw));
 
   const dist = resolve(config.KAN_WEB_DIST);
   const isBackend = (path: string) => path.startsWith("/api") || path.startsWith("/sync");

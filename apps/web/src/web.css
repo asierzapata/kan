@@ -625,3 +625,19 @@ a:focus-visible {
     transition: none;
   }
 }
+
+.web-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 340px;
+}
+.web-signin-error {
+  color: var(--destructive);
+  font-size: 13px;
+}
+.web-signin-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

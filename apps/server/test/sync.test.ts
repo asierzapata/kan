@@ -9,6 +9,7 @@ async function setup(t: test.TestContext, role = "editor") {
   const app = createServer({
     config: testConfig(),
     db: f.db,
+    kysely: f.kysely,
     persistence: f.persistence,
     sqlite: f.sqlite,
     flushMs: 20,

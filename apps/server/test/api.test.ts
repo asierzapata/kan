@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createApp } from "../src/app.ts";
 import { HttpError } from "../src/http.ts";
 import { verifyTicket } from "../src/tickets.ts";
-import { fixture, makeRun, testConfig, SECRET } from "./helpers.ts";
+import { fixture, makeRun, signUpTestUser, testConfig, SECRET } from "./helpers.ts";
 
 const origin = "http://localhost:1430";
 
@@ -23,7 +23,7 @@ async function setup(t: test.TestContext) {
       async activeAuth(request) {
         const id = request.headers.get("x-test-user");
         if (!id) throw new HttpError(401, "Your session expired. Sign in to continue.");
-        return { user: { id, email: `${id}@example.test`, firstName: null, lastName: null }, sessionId: "auth-session" };
+        return { user: { id, email: `${id}@example.test`, name: id }, sessionId: "auth-session" };
       },
     },
   });
@@ -93,20 +93,50 @@ test("invitations, members, roles and revocation", async (t) => {
   assert.ok(!after.some((m: any) => m.user_id === "guest"));
 });
 
-test("room returns a verifiable ticket and websocket URL", async (t) => {
-  const s = await setup(t);
-  const body = await (await s.get(`room?canvas=${s.f.canvas}`, "viewer")).json();
+test("room returns a verifiable ticket through real Better Auth sessions", async (t) => {
+  const f = await fixture();
+  t.after(() => f.close());
+  const { cookie, user, auth } = await signUpTestUser(f, "viewer@example.test");
+  await f.db.query("INSERT INTO web_memberships(workspace,user_id,email,role) VALUES($1,$2,$3,'viewer')", [
+    f.workspace,
+    user.id,
+    "viewer@example.test",
+  ]);
+  const app = createApp({
+    config: testConfig(),
+    db: f.db,
+    persistence: f.persistence,
+    rooms: f.rooms,
+    scheduler: { wake() {} },
+    assets: { put: async () => {}, get: async () => null },
+    auth,
+  });
+  const response = await app.request(`/api/web/room?canvas=${f.canvas}`, { headers: { cookie } });
+  assert.equal(response.status, 200);
+  const body = await response.json();
   const uri = new URL(body.uri);
   assert.equal(uri.protocol, "ws:");
   assert.equal(uri.host, "localhost:1430");
   assert.equal(uri.pathname, "/sync");
   const claims = verifyTicket(SECRET, uri.searchParams.get("ticket")!);
   assert.deepEqual(
-    { room: claims.room, sub: claims.sub, sessionId: claims.sessionId, role: claims.role },
-    { room: s.f.canvas, sub: "viewer", sessionId: "auth-session", role: "viewer" },
+    { room: claims.room, sub: claims.sub, role: claims.role },
+    { room: f.canvas, sub: user.id, role: "viewer" },
   );
-  assert.equal(body.canvas.id, s.f.canvas);
-  assert.equal((await s.get(`room?canvas=${s.f.canvas}`, "outsider")).status, 403);
+  assert.ok(claims.sessionId);
+  assert.equal(body.canvas.id, f.canvas);
+  assert.equal((await app.request(`/api/web/room?canvas=${f.canvas}`)).status, 401);
+  await f.db.query('DELETE FROM "session"');
+  const stale = await createApp({
+    config: testConfig(),
+    db: f.db,
+    persistence: f.persistence,
+    rooms: f.rooms,
+    scheduler: { wake() {} },
+    assets: { put: async () => {}, get: async () => null },
+    auth: (await signUpTestUser(f, "other@example.test")).auth,
+  }).request(`/api/web/room?canvas=${f.canvas}`, { headers: { cookie } });
+  assert.equal(stale.status, 401);
 });
 
 test("chat enqueues idempotently and wakes the scheduler; viewers cannot chat", async (t) => {

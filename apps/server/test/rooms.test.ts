@@ -170,6 +170,7 @@ test("authorizeRecord only admits https and owned asset sources over a real sock
   const app = createServer({
     config,
     db: f.db,
+    kysely: f.kysely,
     persistence: f.persistence,
     sqlite: f.sqlite,
     flushMs: 20,
@@ -253,6 +254,7 @@ test("humans cannot push kan-image shapes with unsafe sources", async (t) => {
   const app = createServer({
     config: testConfig(),
     db: f.db,
+    kysely: f.kysely,
     persistence: f.persistence,
     sqlite: f.sqlite,
     flushMs: 20,

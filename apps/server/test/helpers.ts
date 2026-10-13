@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { WebSocket } from "ws";
 import { memoryDatabase } from "../src/database.ts";
 import { loadConfig, type Config } from "../src/config.ts";
+import { createAuth } from "../src/auth.ts";
 import { RoomManager } from "../src/rooms.ts";
 import { planTool } from "../src/planner.ts";
 import { schema } from "../src/schema.ts";
@@ -12,9 +13,7 @@ export const SECRET = "test-secret-test-secret";
 export const testConfig = (extra: NodeJS.ProcessEnv = {}): Config =>
   loadConfig({
     KAN_SERVICE_SECRET: SECRET,
-    WORKOS_API_KEY: "key",
-    WORKOS_CLIENT_ID: "client",
-    WORKOS_COOKIE_PASSWORD: "a".repeat(32),
+    BETTER_AUTH_SECRET: "b".repeat(32),
     KAN_WEB_DIST: "/nonexistent",
     ...extra,
   });
@@ -50,7 +49,7 @@ export async function seedWorkspace(db: any, workspace: string, roles = ["owner"
 
 export async function fixture(opts: { flushMs?: number; idleMs?: number } = {}) {
   const database = await memoryDatabase();
-  const { db, persistence } = database;
+  const { db, kysely, persistence } = database;
   const workspace = randomUUID();
   const canvas = randomUUID();
   await seedWorkspace(db, workspace);
@@ -64,6 +63,7 @@ export async function fixture(opts: { flushMs?: number; idleMs?: number } = {}) 
   const { rooms, sqlite } = manager(db, persistence, opts);
   return {
     db,
+    kysely,
     persistence,
     sqlite,
     rooms,
@@ -181,3 +181,21 @@ export const assetRecord = (id: string, src: string) => ({
   props: { name: "x.png", src, w: 10, h: 10, mimeType: "image/png", isAnimated: false },
   meta: {},
 });
+
+export async function signUpTestUser(
+  f: { kysely: any },
+  email: string,
+  name = email.split("@")[0],
+  config = testConfig(),
+) {
+  const auth = createAuth(config, f.kysely);
+  const { headers, response } = await auth.api.signUpEmail({
+    body: { email, password: "correct horse battery", name },
+    returnHeaders: true,
+  });
+  const cookie = headers
+    .getSetCookie()
+    .map((value) => value.split(";")[0])
+    .join("; ");
+  return { cookie, user: response.user, auth };
+}

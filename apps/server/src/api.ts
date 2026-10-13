@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import type { Persistence } from "@kan/web-core/persistence";
-import { assertActiveSession, type Auth } from "./auth.ts";
+import type { AuthService } from "./auth.ts";
 import type { Config } from "./config.ts";
 import type { Database } from "./database.ts";
 import { parseDiagram } from "./diagrams.ts";
@@ -27,7 +27,7 @@ export interface ApiContext {
   rooms: RoomManager;
   scheduler: Pick<Scheduler, "wake">;
   assets?: AssetStore;
-  auth: { activeAuth(request: Request): Promise<Auth> };
+  auth: AuthService;
   client?: any;
 }
 
@@ -38,6 +38,8 @@ const wsBase = (publicUrl: string) => publicUrl.replace(/^http/, "ws").replace(/
 
 export function createApi(context: ApiContext) {
   const { config, db, rooms, scheduler, auth } = context;
+  const assertActiveSession = (userId: string, sessionId: string) =>
+    auth.assertActiveSession ? auth.assertActiveSession(userId, sessionId) : Promise.resolve();
   const client = () => context.client ?? agentClient(config);
   const app = new Hono();
   app.all("/*", (c) => handle(c.req.raw));
@@ -275,7 +277,7 @@ export function createApi(context: ApiContext) {
           try {
             const boundary = new RunStreamBoundary();
             for await (const event of events) {
-              await assertActiveSession(config, userId, sessionId);
+              await assertActiveSession(userId, sessionId);
               await db.transaction((tx: any) => canvasAccess(tx, input.canvas, userId));
               controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
               if (boundary.settled(event)) break;
@@ -324,7 +326,7 @@ export function createApi(context: ApiContext) {
       )
     ).rows[0];
     if (!run) throw new HttpError(403, "Run unavailable");
-    if (run.auth_session_id) await assertActiveSession(config, run.user_id, run.auth_session_id);
+    if (run.auth_session_id) await assertActiveSession(run.user_id, run.auth_session_id);
     await db.transaction((tx: any) => canvasAccess(tx, run.canvas, run.user_id, "editor"));
     if (body.name === "getCanvas" && body.input?.scope === "selection" && !body.input.shapeIds)
       body.input = { ...body.input, shapeIds: run.anchors };

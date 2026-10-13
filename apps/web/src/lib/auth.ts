@@ -1,31 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient({ baseURL: window.location.origin });
 
 export interface AuthUser {
   id: string;
   email: string;
-  firstName: string | null;
-  lastName: string | null;
+  name: string;
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/auth/me", { signal: controller.signal })
-      .then(async (response) => (response.ok ? (await response.json()).user : null))
-      .catch(() => null)
-      .then((next) => {
-        if (controller.signal.aborted) return;
-        setUser(next);
-        setLoading(false);
-      });
-    return () => controller.abort();
-  }, []);
-  const signOut = useCallback(async () => {
-    const response = await fetch("/api/auth/sign-out", { method: "POST" });
-    const { url } = response.ok ? await response.json() : { url: "/" };
-    window.location.assign(url);
-  }, []);
-  return { user, loading, signOut };
+  const session = authClient.useSession();
+  const data = session.data?.user;
+  const user: AuthUser | null = data ? { id: data.id, email: data.email, name: data.name } : null;
+  async function signOut() {
+    await authClient.signOut();
+    window.location.assign("/");
+  }
+  return { user, loading: session.isPending, signOut };
 }

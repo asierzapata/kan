@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
-import type { Auth } from "./auth.ts";
+import type { AuthService } from "./auth.ts";
 import type { Config } from "./config.ts";
 import type { Database } from "./database.ts";
 import { canvasAccess, HttpError } from "./http.ts";
@@ -15,7 +15,7 @@ export interface AssetRouteContext {
   db: Database;
   rooms: RoomManager;
   assets: AssetStore;
-  auth: { activeAuth(request: Request): Promise<Auth> };
+  auth: AuthService;
 }
 
 export function createAssetRoutes({ config, db, rooms, assets, auth }: AssetRouteContext) {

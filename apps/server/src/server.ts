@@ -3,7 +3,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { createAdaptorServer } from "@hono/node-server";
 import type { Persistence } from "@kan/web-core/persistence";
 import { createApp } from "./app.ts";
-import { assertActiveSession } from "./auth.ts";
+import { createAuth, type AuthService } from "./auth.ts";
+import type { Kysely } from "kysely";
 import { createAssetStore, type AssetStore } from "./assets.ts";
 import { canvasAccess } from "./http.ts";
 import { agentClient } from "./runs.ts";
@@ -22,7 +23,8 @@ export interface CreateServerOptions {
   sqlite: DatabaseSync;
   authorize?: (claims: TicketClaims) => Promise<{ role: string }>;
   assets?: AssetStore;
-  auth?: { activeAuth(request: Request): Promise<import("./auth.ts").Auth> };
+  kysely: Kysely<any>;
+  auth?: AuthService;
   client?: any;
   flushMs?: number;
   idleMs?: number;
@@ -39,13 +41,17 @@ export function createServer(opts: CreateServerOptions) {
     idleMs: opts.idleMs,
   });
   const client = opts.client !== undefined ? opts.client : agentClient(config);
-  const scheduler = new Scheduler({ db, config, rooms, client });
+  const auth = opts.auth ?? createAuth(config, opts.kysely);
+  const verifySession = async (user: string, session: string) => {
+    if (auth.assertActiveSession) await auth.assertActiveSession(user, session);
+  };
+  const scheduler = new Scheduler({ db, config, rooms, client, verifySession });
   const assets = opts.assets ?? createAssetStore(config);
-  const app = createApp({ config, db, persistence, rooms, scheduler, assets, auth: opts.auth, client });
+  const app = createApp({ config, db, persistence, rooms, scheduler, assets, auth, client });
   const authorize =
     opts.authorize ??
     (async (claims: TicketClaims) => {
-      await assertActiveSession(config, claims.sub, claims.sessionId);
+      await verifySession(claims.sub, claims.sessionId);
       return db.transaction((tx) => canvasAccess(tx, claims.room, claims.sub));
     });
   const server = createAdaptorServer({ fetch: app.fetch }) as unknown as Server;

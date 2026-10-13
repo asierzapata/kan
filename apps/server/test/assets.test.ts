@@ -24,7 +24,7 @@ async function setup(t: test.TestContext) {
     auth: {
       async activeAuth(request) {
         const id = request.headers.get("x-test-user") ?? "editor";
-        return { user: { id, email: `${id}@example.test`, firstName: null, lastName: null }, sessionId: "s" };
+        return { user: { id, email: `${id}@example.test`, name: id }, sessionId: "s" };
       },
     },
   });

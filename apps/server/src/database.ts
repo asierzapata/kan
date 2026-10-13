@@ -1,9 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
 import { Persistence } from "@kan/web-core/persistence";
 import type { Config } from "./config.ts";
+import { pgliteDialect } from "./kysely-pglite.ts";
 
 export interface Tx {
   query(sql: string, args?: unknown[]): Promise<{ rows: any[] }>;
@@ -32,11 +34,22 @@ function pgliteDatabase(pglite: PGlite): Database {
   return db;
 }
 
-async function prepared(db: Database, create: () => Promise<unknown>, close: () => Promise<void>) {
+async function prepared(
+  db: Database,
+  create: () => Promise<unknown>,
+  close: () => Promise<void>,
+  kysely: Kysely<any>,
+) {
   await create();
   const persistence = new Persistence(db);
   await persistence.migrate();
-  return { db, persistence, close };
+  return { db, kysely, persistence, close };
+}
+
+// Kysely shares the PGlite connection; its session search_path must match the schema.
+async function pgliteKysely(pglite: PGlite) {
+  await pglite.exec(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}; SET search_path=${SCHEMA}`);
+  return new Kysely<any>({ dialect: pgliteDialect(pglite) });
 }
 
 export async function memoryDatabase() {
@@ -45,6 +58,7 @@ export async function memoryDatabase() {
     pgliteDatabase(pglite),
     () => pglite.exec(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`),
     () => pglite.close(),
+    await pgliteKysely(pglite),
   );
 }
 
@@ -57,12 +71,14 @@ export async function openDatabase(config: Pick<Config, "DATABASE_URL" | "KAN_DA
       pgliteDatabase(pglite),
       () => pglite.exec(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`),
       () => pglite.close(),
+      await pgliteKysely(pglite),
     );
   }
   const pool = new pg.Pool({
     connectionString: config.DATABASE_URL,
     max: 5,
     connectionTimeoutMillis: 10000,
+    options: `-c search_path=${SCHEMA}`,
   });
   const db: Database = {
     async transaction(fn) {
@@ -87,5 +103,6 @@ export async function openDatabase(config: Pick<Config, "DATABASE_URL" | "KAN_DA
     db,
     () => pool.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`),
     () => pool.end(),
+    new Kysely<any>({ dialect: new PostgresDialect({ pool }) }),
   );
 }

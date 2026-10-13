@@ -31,17 +31,15 @@ bundle exists the server answers `503 Web bundle not built`. `VITE_*` variables
 
 ## Access and assets
 
-WorkOS authenticates users (done directly by the server with `@workos-inc/node`;
-the browser only calls `/api/auth/*`); PostgreSQL memberships authorize workspace
+Better Auth (email + password, no email verification) authenticates users inside the server; the browser uses its client against `/api/auth/*`; PostgreSQL memberships authorize workspace
 and canvas access. Owner manages invitations and members; editor writes; viewer
 reads. Invitations are recipient-bound links (no email delivery), with hashed
 tokens and seven-day expiry. Canvas deletion is a soft delete. HTTP handlers
 enforce `Origin` (must equal `KAN_PUBLIC_URL`) on writes.
 
-WorkOS remote session status is checked server-side, with a bounded 30-second
-active-session cache. Room tickets admit new connections for one minute; admitted
+Session rows are checked server-side, with a bounded 30-second active-session cache. Room tickets admit new connections for one minute; admitted
 sockets remain connected and the scheduler re-evaluates each socket's role and
-WorkOS session every 30 seconds, closing it on any change. Agent writes check
+session every 30 seconds, closing it on any change. Agent writes check
 canvas membership and the active run row before every commit, fencing revoked
 writers and cancelled or replaced runs.
 
@@ -104,7 +102,7 @@ repository's root `.env.local` without overriding variables already set.
 | `KAN_ENV` | `development` (default), `staging` or `production`; the `arm-recovery` fixture works only in `staging`. |
 | `KAN_SERVICE_SECRET` | Shared bearer secret (≥16 chars) for socket tickets and the agent's `/api/web/internal` calls. |
 | `KAN_PUBLIC_URL` | Browser origin (default `http://localhost:1430`); sets the OAuth redirect, cookie `Secure`, sync URL and write-origin check. |
-| `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_COOKIE_PASSWORD` | WorkOS AuthKit (cookie password ≥32 chars). The callback is `${KAN_PUBLIC_URL}/api/auth/callback`. |
+| `BETTER_AUTH_SECRET` | Signs Better Auth sessions (≥32 chars; `openssl rand -base64 32`). Accounts are email + password, stored in the `user`/`session`/`account`/`verification` tables of the `kan_web_v1` schema. |
 | `EVE_URL` | Agent runtime base URL. Required outside development; unset in development fails queued runs with `server.agent_unconfigured`. |
 | `KAN_RUN_CEILING` | Maximum runs stored per database; `0` means unlimited. Defaults to `20` outside production; required when `KAN_ENV=production`. |
 | `KAN_CONTEXT_RUN_CAP` | Automatic meeting-context runs per meeting before it pauses (`0` unlimited, default `20`). |

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
 import { randomUUID } from "node:crypto";
 import { Persistence } from "../src/persistence.mjs";
-import { enqueue } from "../../../apps/web/src/lib/runs.ts";
-import { runCeiling, contextRunCap } from "../../../apps/web/src/lib/policy.ts";
+import { enqueue } from "../../../apps/server/src/runs.ts";
+import { runCeiling, contextRunCap } from "../../../apps/server/src/policy.ts";
 
 const original = { ...process.env };
 test.afterEach(() => {

@@ -4,7 +4,7 @@ import { connect } from "./db.mjs";
 
 const [canvas, out] = process.argv.slice(2);
 if (!canvas || !out) {
-  console.error("Usage: node scripts/web/backup.mjs <canvasId> <out.json>");
+  console.error("Usage: node --import tsx scripts/web/backup.mjs <canvasId> <out.json>");
   process.exit(2);
 }
 const { db, close } = await connect();

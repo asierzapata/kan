@@ -1,0 +1,41 @@
+{
+  "name": "@kan/server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1146.0",
+    "@electric-sql/pglite": "0.5.8",
+    "@hono/node-server": "2.1.1",
+    "@kan/web-core": "*",
+    "@tldraw/state": "5.4.2",
+    "@tldraw/store": "5.4.2",
+    "@tldraw/sync-core": "5.4.2",
+    "@tldraw/tlschema": "5.4.2",
+    "@tldraw/utils": "5.4.2",
+    "@tldraw/validate": "5.4.2",
+    "@workos-inc/node": "10.14.0",
+    "dompurify": "3.4.15",
+    "eve": "0.71.0",
+    "hono": "4.13.8",
+    "jsdom": "26.1.0",
+    "mermaid": "11.16.1",
+    "pg": "8.23.1",
+    "ws": "8.21.3",
+    "zod": "4.6.2"
+  },
+  "devDependencies": {
+    "@types/jsdom": "30.0.0",
+    "@types/node": "26.6.5",
+    "@types/pg": "8.23.1",
+    "@types/ws": "8.18.1",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3"
+  }
+}

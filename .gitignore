@@ -51,7 +51,6 @@ dist-ssr
 /apps/web/.vercel/
 /apps/web/.output/
 /apps/web/.tanstack/
-/apps/realtime/.wrangler/
 /apps/web-agent/.eve/
 /apps/web-agent/.output/
 /apps/web-agent/.nitro/

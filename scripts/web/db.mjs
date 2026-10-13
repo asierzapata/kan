@@ -1,38 +1,16 @@
-import pg from "pg";
-import { Persistence } from "../../packages/web-core/src/persistence.mjs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadEnvFile } from "../../apps/server/src/config.ts";
+import { openDatabase } from "../../apps/server/src/database.ts";
 
+// Run with `node --import tsx`. Uses DATABASE_URL, or the local PGlite directory
+// under KAN_DATA_DIR (default data/server); stop the server first in that case.
 export async function connect() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    console.error("DATABASE_URL is not set; refusing to run.");
-    process.exit(2);
-  }
-  const schema = "kan_web_v1";
-  const pool = new pg.Pool({ connectionString, max: 1 });
-  const db = {
-    async transaction(fn) {
-      const tx = await pool.connect();
-      try {
-        await tx.query("BEGIN");
-        await tx.query(`SET LOCAL search_path=${schema}`);
-        const result = await fn(tx);
-        await tx.query("COMMIT");
-        return result;
-      } catch (error) {
-        await tx.query("ROLLBACK");
-        throw error;
-      } finally {
-        tx.release();
-      }
-    },
-    query(sql, args) {
-      return this.transaction((tx) => tx.query(sql, args));
-    },
-    exec(sql) {
-      return this.query(sql);
-    },
-  };
-  await pool.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
-  await new Persistence(db).migrate();
-  return { db, close: () => pool.end() };
+  loadEnvFile();
+  const root = fileURLToPath(new URL("../..", import.meta.url));
+  const { db, close } = await openDatabase({
+    DATABASE_URL: process.env.DATABASE_URL,
+    KAN_DATA_DIR: process.env.KAN_DATA_DIR ?? join(root, "data", "server"),
+  });
+  return { db, close };
 }

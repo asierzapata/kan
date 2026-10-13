@@ -1,5 +1,5 @@
 #!/bin/sh
-# One-shot setup for the box that runs room-server. Idempotent: safe to re-run.
+# One-shot setup for the box that runs the kan server. Idempotent: safe to re-run.
 #
 #   curl -fsSL https://raw.githubusercontent.com/asierzapata/kan/main/deploy/bootstrap.sh | sh
 #

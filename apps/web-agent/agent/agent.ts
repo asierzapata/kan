@@ -11,4 +11,7 @@ export default defineAgent({
     maxTokenCostUsdPerSession: 0.1,
     sessionTimeoutMs: 60 * 60 * 1000,
   },
+  ...(process.env.WORKFLOW_POSTGRES_URL
+    ? { experimental: { workflow: { world: "@workflow/world-postgres" } } }
+    : {}),
 });

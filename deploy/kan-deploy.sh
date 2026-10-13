@@ -10,7 +10,7 @@ REPO=${KAN_REPO:-/srv/kan}
 ENV_FILE=${KAN_ENV_FILE:-/srv/kan.env}
 BRANCH=${KAN_BRANCH:-main}
 LOCK=${KAN_LOCK:-/srv/kan.deploy.lock}
-SERVICE=${KAN_SERVICE:-room-server}
+SERVICE=${KAN_SERVICE:-server}
 
 # flock has to wrap the whole run, not guard a single line, so re-exec under it.
 # -E 75 distinguishes "lock held" from the script's own exit codes.

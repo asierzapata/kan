@@ -4,11 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TranscriptRun } from "../src/components/thread/TranscriptRun";
 import { ThreadProvider } from "../src/components/thread/thread-context";
-import { createWsTransport, toViewEntry } from "../src/lib/room-transport";
-import { setupMockIndexedDB } from "./mock-idb";
-import { saveInstallationProfile } from "../src/lib/installation-profile";
-import { api, createRoom, registerUser, setup } from "../../room-server/test/helpers";
-import { setTimeout as pause } from "node:timers/promises";
+import { toViewEntry } from "../src/lib/room-transport";
 import { buildThreadRows, type TranscriptEntry } from "../src/lib/thread";
 import { subscribeToOwnCaptions } from "../src/lib/room-captions";
 import type OT from "@opentok/client";
@@ -104,85 +100,4 @@ test("destroyed caption subscribers clear partial text and ignore late events", 
   assert.equal(updates.length, count);
   stop();
   assert.equal(unsubscribed, 0);
-});
-
-test("room transport retries final captions but never refreshes stale partials or accepts a closed socket", async (t) => {
-  const ctx = await setup({ classifier: null });
-  t.after(() => ctx.cleanup());
-  const user = await registerUser(ctx.base, "Speaker"), room = await createRoom(user, ctx.base);
-  const originalIdb = globalThis.indexedDB;
-  setupMockIndexedDB();
-  t.after(() => { globalThis.indexedDB = originalIdb; });
-  await saveInstallationProfile({ schemaVersion: 1, installationId: user.id, secret: user.secret, name: user.name, createdAt: new Date().toISOString(), onboardingVersion: 1, firstCanvasId: null, onboardingCompletedAt: null, sharingHintDismissedAt: null });
-  const originalFetch = globalThis.fetch;
-  t.mock.method(globalThis, "fetch", (input: RequestInfo | URL, options?: RequestInit) => {
-    const url = new URL(String(input));
-    return originalFetch(`${ctx.base}${url.pathname}${url.search}`, options);
-  });
-  const OriginalSocket = globalThis.WebSocket;
-  const sockets: LocalSocket[] = [];
-  class LocalSocket extends OriginalSocket {
-    sent: { type: string; id?: string; isFinal?: boolean }[] = [];
-    constructor(url: string | URL) {
-      const target = new URL(url);
-      super(`${ctx.base.replace("http:", "ws:")}${target.pathname}${target.search}`);
-      sockets.push(this);
-    }
-    send(data: string) { this.sent.push(JSON.parse(data)); super.send(data); }
-  }
-  globalThis.WebSocket = LocalSocket;
-  t.after(() => { globalThis.WebSocket = OriginalSocket; });
-  let heartbeat: (() => void) | undefined;
-  const originalInterval = globalThis.setInterval;
-  t.mock.method(globalThis, "setInterval", (callback: () => void, ms: number) => {
-    if (ms === 10_000) heartbeat = callback;
-    return originalInterval(callback, ms);
-  });
-  t.mock.method(Date, "now", () => ctx.clock.now());
-  const wait = async (predicate: () => boolean) => {
-    const until = performance.now() + 4000;
-    while (!predicate() && performance.now() < until) await pause(10);
-    assert.ok(predicate(), "room transport did not reach the expected state");
-  };
-  const transport = createWsTransport(room.id);
-  const entries = new Map<string, TranscriptEntry>();
-  const stop = transport.subscribe((entry) => { if (entry.kind === "transcript") entries.set(entry.id, entry); });
-  t.after(stop);
-  await wait(() => transport.snapshot().ready);
-  const id = crypto.randomUUID();
-  transport.sendTranscript!({ id, text: "A partial", isFinal: false });
-  await wait(() => transport.snapshot().transcripts?.[0]?.text === "A partial");
-  ctx.clock.advance(100);
-  transport.sendTranscript!({ id, text: "A revised partial", isFinal: false });
-  await wait(() => transport.snapshot().transcripts?.[0]?.text === "A revised partial");
-  const partialSends = sockets[0].sent.filter((message) => message.type === "transcript").length;
-  ctx.clock.advance(100);
-  heartbeat!();
-  await pause(20);
-  assert.equal(sockets[0].sent.filter((message) => message.type === "transcript").length, partialSends, "heartbeats must not keep stale interim text alive");
-  const staleSocket = sockets[0], lateMessage = staleSocket.onmessage;
-  staleSocket.close();
-  await wait(() => !transport.snapshot().connected);
-  transport.sendTranscript!({ id, text: "A finalized sentence.", isFinal: true });
-  await wait(() => transport.snapshot().ready && entries.has(id));
-  assert.equal(entries.get(id)?.text, "A finalized sentence.");
-  assert.equal(transport.snapshot().transcripts?.length ?? 0, 0);
-  lateMessage?.call(staleSocket, new MessageEvent("message", { data: JSON.stringify({ type: "transcript", sessionId: "stale", caption: { id, text: "Late old socket data", authorId: user.id, at: new Date().toISOString(), sessionId: "stale" } }) }));
-  assert.equal(transport.snapshot().transcripts?.length ?? 0, 0);
-  const replayedId = crypto.randomUUID();
-  sockets.at(-1)!.close();
-  await wait(() => !transport.snapshot().connected);
-  transport.sendTranscript!({ id: replayedId, text: "Saved before the acknowledgement.", isFinal: true });
-  await api(user, ctx.base, `/rooms/${room.id}/messages`, { method: "POST", body: JSON.stringify({ id: replayedId, text: "Saved before the acknowledgement.", source: "transcript" }) });
-  await wait(() => transport.snapshot().ready && entries.has(replayedId));
-  assert.ok(!sockets.at(-1)!.sent.some((message) => message.id === replayedId), "replayed finals must not be sent again");
-  const expiredId = crypto.randomUUID();
-  ctx.clock.advance(100);
-  transport.sendTranscript!({ id: expiredId, text: "An abandoned phrase", isFinal: false });
-  await wait(() => transport.snapshot().transcripts?.[0]?.id === expiredId);
-  sockets.at(-1)!.close();
-  await wait(() => !transport.snapshot().connected);
-  ctx.clock.advance(16_000);
-  await wait(() => transport.snapshot().ready);
-  assert.ok(!sockets.at(-1)!.sent.some((message) => message.id === expiredId));
 });

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useAuth } from "@workos/authkit-tanstack-react-start/client";
+import { useAuth } from "../lib/auth";
 import { lazy, Suspense, useEffect, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -765,7 +765,7 @@ export function WebApp() {
         )}
         <Button
           variant="ghost"
-          onClick={() => void signOut({ returnTo: window.location.origin })}
+          onClick={() => void signOut()}
         >
           Sign out
         </Button>

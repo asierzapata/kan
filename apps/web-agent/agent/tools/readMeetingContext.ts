@@ -1,6 +1,6 @@
 import { defineWorkflowTool, type WorkflowStepToolContext } from "eve/tools";
 import { z } from "zod";
-import { readMeetingContextInput } from "../../../web/src/lib/meeting-schema";
+import { readMeetingContextInput } from "../../../server/src/meeting-schema";
 export default defineWorkflowTool({
   description:
     "Read the finalized meeting transcript segments that triggered this run (or an explicit range). Call this first on meeting-context runs.",
@@ -20,7 +20,7 @@ async function callMeeting(input: any, ctx: WorkflowStepToolContext) {
     redirect: "manual",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${process.env.STAGING_SECRET}`,
+      authorization: `Bearer ${process.env.KAN_SERVICE_SECRET}`,
     },
     body: JSON.stringify({
       action: "tool",

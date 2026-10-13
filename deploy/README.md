@@ -1,11 +1,11 @@
-# Deploying room-server
+# Deploying the kan server
 
 One box, one container, pulling from `origin/main`. There is no CI and no PaaS:
 a systemd timer on the box polls GitHub every 60s and rebuilds when `main` moves.
 
 The server is a **single stateful process**. Rooms, sessions and pending edits
-live in memory (`apps/room-server/src/engine.ts`), so there is no second replica
-and every deploy drops open `/sync` and `/events` sockets. Turn the timer off
+live in memory (`apps/server/src/rooms.ts`, with SQLite and Postgres behind it), so there is no second replica
+and every deploy drops open `/sync` sockets. Turn the timer off
 before a demo: `systemctl stop kan-deploy.timer`.
 
 ## Box setup
@@ -46,11 +46,9 @@ shell script whose file is rewritten underneath it will misparse, and
 ## Exposure
 
 `cloudflared` runs as a sidecar in the compose file and needs `CF_TUNNEL_TOKEN`.
-Point a public hostname at `room-server:8787`. The desktop client connects over
-`wss://`, which the tunnel proxies fine.
-
-`KAN_ALLOWED_ORIGINS` must keep the `tauri://localhost` and
-`http://tauri.localhost` entries or the app locks itself out of its own server.
+Point a public hostname at `server:8787` and set `KAN_PUBLIC_URL` to that
+origin. Browsers connect over `wss://`, which the tunnel proxies fine. The server
+variables are listed in `apps/web/README.md`.
 
 ## What happens when a deploy fails
 

@@ -57,7 +57,7 @@ export async function exportCanvas(db, canvasId) {
       },
       room: (await rows(tx, "SELECT * FROM web_rooms WHERE id=$1", [canvasId]))[0] ?? null,
       records: await rows(tx, "SELECT * FROM web_records WHERE room=$1 ORDER BY id", [canvasId]),
-      events: await rows(tx, "SELECT * FROM web_events WHERE room=$1 ORDER BY revision", [canvasId]),
+      events: await rows(tx, "SELECT * FROM web_events WHERE room=$1 ORDER BY seq", [canvasId]),
       threads,
       runs: await rows(tx, `SELECT * FROM web_runs WHERE ${inThreads} ORDER BY created_at,id`, [canvasId]),
       messages: await rows(tx, `SELECT * FROM web_messages WHERE ${inThreads} ORDER BY created_at,id`, [canvasId]),
@@ -95,7 +95,10 @@ export async function importCanvas(db, snapshot, { workspace }) {
     await put("web_canvases", [{ ...snapshot.canvas, workspace }]);
     await put("web_rooms", snapshot.room ? [snapshot.room] : []);
     await put("web_records", snapshot.records);
-    await put("web_events", snapshot.events);
+    await put(
+      "web_events",
+      snapshot.events.map(({ seq, ...event }) => event),
+    );
     await put("web_threads", snapshot.threads);
     await put("web_runs", snapshot.runs);
     await put("web_messages", snapshot.messages);

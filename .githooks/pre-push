@@ -17,18 +17,13 @@ failed=""
 
 echo "pre-push: typecheck (all workspaces)"
 npx turbo run typecheck --output-logs=errors-only || failed="$failed typecheck"
-npm run typecheck:backend --silent || failed="$failed typecheck:backend"
 
 echo "pre-push: tests"
 # `tsx --test` exits 0 when its glob matches nothing, which reads as a pass and
 # is not one. Count the files so an empty suite is visible rather than green.
-test_count=$(find apps/room-server/test -name '*.test.ts' 2>/dev/null | wc -l | tr -d ' ')
-if [ "${KAN_SKIP_BACKEND_TESTS:-}" = "1" ]; then
-  echo "pre-push: WARNING — backend tests skipped (KAN_SKIP_BACKEND_TESTS=1)"
-elif [ "$test_count" = 0 ]; then
-  echo "pre-push: WARNING — no backend test files found, nothing to run"
-else
-  npm run test:backend --silent || failed="$failed test:backend"
+test_count=$(find apps/server/test -name '*.test.ts' 2>/dev/null | wc -l | tr -d ' ')
+if [ "$test_count" = 0 ]; then
+  echo "pre-push: WARNING — no server test files found, nothing to run"
 fi
 npx turbo run test --output-logs=errors-only || failed="$failed turbo-test"
 

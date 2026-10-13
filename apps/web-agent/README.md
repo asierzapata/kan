@@ -1,22 +1,46 @@
 # Kan web agent
 
-Server-owned eve agent using AI Gateway (`openai/gpt-6-luna`). No native ACP,
+Self-hosted eve agent using AI Gateway (`openai/gpt-6-luna`). No native ACP,
 provider subscription dialogs, terminal tools or default eve tools are exposed.
-The staging source packager copies this authored agent beside the Start service.
 
-Each tool authenticates server-to-server, and Start derives canvas/user/run scope
-from the stored session association. Tools validate desktop contracts, require
-current canvas revisions and use stable run/call operation IDs. Reads are bounded;
-focus is a viewer-local intent. R2 image references cannot cross canvas ownership.
+Each tool calls `apps/server` at `${WEB_API_URL}/internal` with
+`Authorization: Bearer ${KAN_SERVICE_SECRET}`. The server derives canvas, user and
+run scope from the stored eve session id, validates the desktop node contracts,
+requires the revision returned by `getCanvas` for mutations, and uses stable
+`<run>:<callId>` operation ids. Reads are bounded; focus is a viewer-local intent.
+Image references cannot cross canvas ownership.
 
 Mutation calls execute as durable workflow steps. Stable receipts recover a step
 that committed but lost its result. The staging-only `arm-recovery` fixture can
-terminate a tool step after commit; only QA-named canvases and active runs qualify.
-This privileged fault hook is for synthetic acceptance and must be removed or
-explicitly disabled before any production release.
+terminate a tool step after commit (the server only honours it when
+`KAN_ENV=staging`, for QA-named canvases and active runs). Keep it disabled in
+production.
 
-`npm run typecheck -w @kan/web-agent` and `npm run build -w @kan/web-agent`
-verify source. See the web README for queue/retry policy and WEB_MIGRATION.md for
-observed live-provider coverage. Do not call the corrected calendar new-request
-check a retry API test. Live tests spend credits and must stay within the user's
-explicit budget. Report completed-step usage separately from billed infrastructure.
+## Run
+
+- `npm run dev -w @kan/web-agent` (`eve dev`)
+- `npm run build -w @kan/web-agent` then `npm run start -w @kan/web-agent`
+  (`eve build` writes `.output/`; `eve start` serves it)
+- `npm run typecheck -w @kan/web-agent`
+
+## Configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `AI_GATEWAY_API_KEY` | Vercel AI Gateway credential for the model. |
+| `KAN_SERVICE_SECRET` | Shared bearer secret. Must equal the server's value; it authenticates the server's calls to the agent channel and the agent's calls back. |
+| `WEB_API_URL` | `apps/server` API base, e.g. `http://localhost:8787/api/web`. |
+| `PORT` | Port the agent listens on. |
+| `WORKFLOW_POSTGRES_URL` | Optional. When set at build/start, durable workflow state uses `@workflow/world-postgres` instead of the local world (it also reads `DATABASE_URL`, `WORKFLOW_POSTGRES_JOB_PREFIX`, `WORKFLOW_POSTGRES_WORKER_CONCURRENCY`). Run the package's `bootstrap` once to create its tables. |
+
+Point the server's `EVE_URL` at this agent (for example `http://localhost:3000`).
+The server calls the agent under `/eve/`, and the workflow runtime needs
+`/.well-known/workflow/` reachable by the agent's own worker. With the Postgres
+world those routes carry no authentication: keep `/.well-known/workflow/v1/flow`
+unreachable from outside (loopback delivery does not need the ingress) and read
+the package README's security section before exposing the agent.
+
+See the web README for queue and retry policy and WEB_MIGRATION.md for observed
+live-provider coverage. Live tests spend credits and must stay within the
+explicit budget. Report completed-step usage separately from billed
+infrastructure.

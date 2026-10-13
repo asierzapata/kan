@@ -30,7 +30,7 @@ async function callCanvas(input: any, ctx: WorkflowStepToolContext) {
     redirect: "manual",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${process.env.STAGING_SECRET}`,
+      authorization: `Bearer ${process.env.KAN_SERVICE_SECRET}`,
     },
     body: JSON.stringify({
       action: "tool",

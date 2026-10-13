@@ -1,5 +1,5 @@
 [Unit]
-Description=Deploy kan room-server from origin/main
+Description=Deploy kan server from origin/main
 Wants=network-online.target
 After=network-online.target docker.service
 Requires=docker.service

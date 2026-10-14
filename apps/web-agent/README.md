@@ -18,9 +18,14 @@ production.
 
 ## Run
 
-- `npm run dev -w @kan/web-agent` (`eve dev`)
-- `npm run build -w @kan/web-agent` then `npm run start -w @kan/web-agent`
-  (`eve build` writes `.output/`; `eve start` serves it)
+- `npm run dev:stack` runs the server, web app and this agent together.
+- `npm run dev:agent` (`eve dev --port 3100 --no-ui`) or `npm run start:agent`
+  (`eve build`, then `eve start --port 3100`). The port is explicit because the
+  server reads `PORT` from the same root `.env.local`.
+- `npm run stack:up` builds `apps/web-agent/Dockerfile` (context: repo root) and
+  runs it with the server; the agent listens on 3000 inside the compose network
+  and publishes no port. `WORKFLOW_POSTGRES_URL` is read by `eve build` (it selects
+  the workflow world), so pass it as a build arg as well as at runtime.
 - `npm run typecheck -w @kan/web-agent`
 
 ## Configuration
@@ -36,7 +41,7 @@ variables yourself.
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway credential for the model. |
 | `KAN_SERVICE_SECRET` | Shared bearer secret. Must equal the server's value; it authenticates the server's calls to the agent channel and the agent's calls back. |
 | `WEB_API_URL` | `apps/server` API base, e.g. `http://localhost:8787/api/web`. |
-| `PORT` | Port the agent listens on. |
+| `PORT` | Fallback listen port when no `--port` flag is given (the root scripts pass `--port 3100`, so a shared `PORT` does not matter). |
 | `WORKFLOW_POSTGRES_URL` | Optional. When set at build/start, durable workflow state uses `@workflow/world-postgres` instead of the local world (it also reads `DATABASE_URL`, `WORKFLOW_POSTGRES_JOB_PREFIX`, `WORKFLOW_POSTGRES_WORKER_CONCURRENCY`). Run the package's `bootstrap` once to create its tables. |
 
 Point the server's `EVE_URL` at this agent (for example `http://localhost:3000`).

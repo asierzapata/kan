@@ -71,6 +71,20 @@ Any other `packages/*` change, and `package.json`, `package-lock.json` or
 `turbo.json`, turn on both. `pre-push` ignores scoping: it typechecks, tests and
 builds every workspace through turbo.
 
+## Getting started (web stack)
+
+```sh
+git clone <repo> && cd kan
+npm install
+cp .env.example .env.local     # then set AI_GATEWAY_API_KEY (needed for agent turns)
+npm run dev:stack              # server :8787, web :1430, agent :3100 (prefixed logs)
+```
+
+Open http://localhost:1430. No Postgres or S3 is needed: the server uses embedded
+PGlite and local-disk assets under `data/server`. To run the production-shaped
+containers instead, use `npm run stack:up` (server + eve, http://localhost:8787),
+`npm run stack:logs` and `npm run stack:down`.
+
 ## Commands
 
 | Task                      | Command                                               |

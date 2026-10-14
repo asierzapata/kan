@@ -3,6 +3,9 @@
 # separate stage and copied to KAN_WEB_DIST.
 FROM node:24-slim AS web
 WORKDIR /app
+# VITE_* values are baked into the browser bundle at build time.
+ARG VITE_TLDRAW_LICENSE_KEY
+ENV VITE_TLDRAW_LICENSE_KEY=$VITE_TLDRAW_LICENSE_KEY
 COPY . .
 RUN npm ci && npm run build -w @kan/web
 

@@ -9,16 +9,26 @@ Use Node 24 and the repository's npm workspaces.
 
 ## Develop
 
-Run the server and the SPA side by side, then open http://localhost:1430:
+```sh
+npm install
+cp .env.example .env.local   # set AI_GATEWAY_API_KEY for agent turns
+npm run dev:stack            # server :8787, web :1430, agent :3100
+```
 
-- `npm run dev -w @kan/server` (port 8787; embedded PGlite and local disk assets
-  under `data/server` when `DATABASE_URL` and `S3_BUCKET` are unset)
-- `npm run dev -w @kan/web` (port 1430, strict port). Vite proxies `/api` and the
+Open http://localhost:1430. Or run the pieces yourself:
+
+- `npm run dev:server` (port 8787; embedded PGlite and local disk assets under
+  `data/server` when `DATABASE_URL` and `S3_BUCKET` are unset)
+- `npm run dev:web` (port 1430, strict port). Vite proxies `/api` and the
   `/sync` WebSocket to the server.
+- `npm run dev:agent` (eve on port 3100)
 
-Server variables come from the environment or the repository's root `.env.local`
-(see below). Other commands: `npm run typecheck -w @kan/web`,
-`npm run build -w @kan/web`, `npm run test -w @kan/server`, `npm run test:web`.
+`npm run stack:up` builds and runs the server and agent as containers
+(`docker-compose.yml` plus `docker-compose.local.yml`) at http://localhost:8787,
+with `stack:logs` and `stack:down`. Server variables come from the environment
+or the repository's root `.env.local` (see below). Other commands:
+`npm run typecheck -w @kan/web`, `npm run build -w @kan/web`,
+`npm run test -w @kan/server`, `npm run test:web`.
 
 ## Production
 

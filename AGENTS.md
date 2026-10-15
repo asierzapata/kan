@@ -84,6 +84,7 @@ Open http://localhost:1430. No Postgres or S3 is needed: the server uses embedde
 PGlite and local-disk assets under `data/server`. To run the production-shaped
 containers instead, use `npm run stack:up` (server + eve, http://localhost:8787),
 `npm run stack:logs` and `npm run stack:down`.
+Production deployment (Dokploy, Neon, R2) is in `DEPLOY.md`.
 
 ## Commands
 
@@ -277,8 +278,11 @@ accept them. Arrow bindings need `snap: "none"` in tldraw 5; labels are
 One Node 24 process (`apps/server`, run with tsx, no build step) is the whole web
 backend: Hono HTTP API, `ws` sync sockets, Better Auth, rooms, an in-process
 scheduler and the asset store. It also serves the built SPA from `KAN_WEB_DIST`.
-**It owns rooms in memory, so exactly one instance may run.** Two instances would
-need sticky routing by canvas; that is not supported.
+**It owns rooms in memory, so exactly one live node may run.** Horizontal scaling
+would need all `/sync` and `/api/web/*` traffic for a canvas routed to its owning
+node (consistent hash on the canvas id at the proxy) plus a lease/epoch on
+`web_canvases` checked by the write-behind flush; neither exists. Active-passive
+(a second VM, stopped, with Neon and R2 off-box) is the supported redundancy story.
 
 - **Rooms.** Each open canvas is a tldraw `TLSocketRoom` over `SQLiteSyncStorage`
   in `${KAN_DATA_DIR}/rooms.sqlite` (`node:sqlite`, WAL). `TLSyncStorage` is

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "eve dev",
     "start": "eve start",
-    "build": "eve build",
+    "build": "node --env-file-if-exists=../../.env.local ../../node_modules/eve/bin/eve.js build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

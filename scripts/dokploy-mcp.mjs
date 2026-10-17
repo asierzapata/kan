@@ -18,12 +18,19 @@ if (!process.env.DOKPLOY_API_KEY) {
 
 const env = {
   ...process.env,
-  DOKPLOY_URL: process.env.DOKPLOY_URL ?? "https://dokploy.asierzapata.com",
+  DOKPLOY_URL: process.env.DOKPLOY_URL || "https://dokploy.asierzapata.com",
+  DOKPLOY_TIMEOUT: process.env.DOKPLOY_TIMEOUT || "10000",
+  DOKPLOY_RETRY_ATTEMPTS: process.env.DOKPLOY_RETRY_ATTEMPTS || "1",
+  DOKPLOY_REDACT_ENV: process.env.DOKPLOY_REDACT_ENV || "true",
   // The full API is 500+ tools; load only what deploying and debugging Kan needs.
   DOKPLOY_ENABLED_TAGS:
-    process.env.DOKPLOY_ENABLED_TAGS ?? "project,environment,server,compose,domain,deployment,docker",
+    process.env.DOKPLOY_ENABLED_TAGS || "project,environment,server,compose,domain,deployment,docker",
 };
 
-const child = spawn("npx", ["-y", "@dokploy/mcp@0.30.7"], { stdio: "inherit", env });
+const child = spawn(process.platform === "win32" ? "npx.cmd" : "npx", ["-y", "@dokploy/mcp@0.30.7"], { stdio: "inherit", env });
+child.on("error", () => {
+  console.error("dokploy-mcp: could not start npx; check Node/npm on the MCP client's PATH");
+  process.exitCode = 1;
+});
 child.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));

@@ -1,119 +1,169 @@
-# Deploying Kan
+# Deploying and operating Kan
 
-Kan runs as one Docker Compose project (`docker-compose.yml`: `server` + `eve`),
-deployed with [Dokploy](https://dokploy.asierzapata.com) onto a Debian VM.
+Local setup is in [README.md](README.md); personal infrastructure access and MCP
+client setup are in [docs/MCP.md](docs/MCP.md).
 
-## Topology
+## Application topology
 
-```
- Dokploy panel (control plane, home server)
-        │  SSH (remote server)
-        ▼
- kan-prod VM (Proxmox, Debian; Docker + Traefik installed by Dokploy)
-   ├─ server  :8787  API, /sync sockets, SPA, scheduler, SQLite hot store (/data)
-   └─ eve     :3000  agent (internal only, no published port)
-        ▲
- Cloudflare Tunnel public hostname ──► VM Traefik :80   (TLS ends at Cloudflare)
+The collaborative app runs as one Docker Compose project (`docker-compose.yml`):
 
- Off-box: Neon Postgres (DATABASE_URL, optionally WORKFLOW_POSTGRES_URL)
-          Cloudflare R2   (S3_*)
+```text
+Cloudflare Tunnel -> VM Traefik :80 -> server :8787 (API, sockets, SPA, scheduler)
+                                      |
+                                      +-> eve :3000 (internal only)
+State: local persistent volumes + Neon Postgres + private Cloudflare R2
 ```
 
-- Use a **VM, not an LXC**: Docker in LXC needs nesting and keyctl and misbehaves.
-- One stateful process per deployment: every deploy drops open `/sync` sockets
-  briefly and clients reconnect.
+Use one live server instance. Room ownership is in memory with a local SQLite
+hot store; increasing replicas is unsupported. Deployments briefly disconnect
+sockets. Use a VM with Docker/Compose; the current installation is Debian on
+Proxmox. The separate Dokploy panel controls the VM through SSH.
 
-## Environment variables
+## Production configuration
 
-Set these on the compose service (Dokploy → Environment). Secrets never go in git.
+Set variables in Dokploy's compose **Environment** tab, never in Git. Treat
+staging as a separate compose project with its own URL, database/branch, bucket,
+secrets and volumes. `KAN_ENV=staging` enables the narrowly scoped recovery QA
+fixture, so don't point staging tests at production data.
 
-| Variable                                                                                                   | Required   | Source / notes                                                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `KAN_PUBLIC_URL`                                                                                           | yes        | The public origin, exactly (e.g. `https://kan.example.com`, no trailing slash). Better Auth and the write-origin check compare against it.                                                       |
-| `KAN_SERVICE_SECRET`                                                                                       | yes        | `openssl rand -hex 32`. Shared by `server` and `eve`.                                                                                                                                            |
-| `BETTER_AUTH_SECRET`                                                                                       | yes        | `openssl rand -base64 32`. Changing it signs everyone out.                                                                                                                                       |
-| `KAN_ENV`                                                                                                  | no         | Defaults to `production`, which makes `S3_BUCKET` and `KAN_RUN_CEILING` mandatory.                                                                                                               |
-| `DATABASE_URL`                                                                                             | yes (prod) | Neon connection string. Unset falls back to embedded PGlite (development only).                                                                                                                  |
-| `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | yes (prod) | R2: bucket, `https://<account>.r2.cloudflarestorage.com`, region `auto`, an API token's key pair.                                                                                                |
-| `KAN_RUN_CEILING`                                                                                          | yes (prod) | Max stored agent runs; `0` is unlimited.                                                                                                                                                         |
-| `KAN_CONTEXT_RUN_CAP`                                                                                      | no         | Automatic meeting-context runs per meeting (default 20).                                                                                                                                         |
-| `AI_GATEWAY_API_KEY`                                                                                       | yes        | Vercel AI Gateway key for agent turns.                                                                                                                                                           |
-| `WORKFLOW_POSTGRES_URL`                                                                                    | no         | Durable agent state in Postgres. A **build arg and a runtime var**: the workflow world is baked at `eve build`, so changing it needs a rebuild.                                                  |
-| `VITE_TLDRAW_LICENSE_KEY`                                                                                  | yes (prod) | Build arg for the SPA (baked into the bundle). Rebuild to change. Without it tldraw unmounts the editor 5 s after load on any non-localhost host: the canvas shows "Connected" and nothing else. |
+| Variable | Requirement |
+| --- | --- |
+| `KAN_PUBLIC_URL` | Exact browser origin, e.g. `https://app.getkan.dev`, no trailing slash. Controls cookies, sockets and write-origin validation. |
+| `KAN_SERVICE_SECRET` | Shared server/eve bearer secret. Generate with `openssl rand -hex 32`. |
+| `BETTER_AUTH_SECRET` | Session secret, at least 32 chars; `openssl rand -base64 32`. Rotation signs users out. |
+| `DATABASE_URL` | Production Postgres/Neon connection string. Keep it off laptops unless needed for an authorized operation. |
+| `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | Private R2 bucket, account S3 endpoint, region `auto`, bucket-scoped credentials and path-style flag. |
+| `KAN_ENV` | Compose defaults to `production`. PGlite/disk assets are only for local development. |
+| `KAN_RUN_CEILING` | Required in production: stored-run count limit; `0` means unlimited. This is not a dollar budget. |
+| `KAN_CONTEXT_RUN_CAP` | Optional context-run cap (default 20). |
+| `AI_GATEWAY_API_KEY` | Required for actual AI turns. |
+| `WORKFLOW_POSTGRES_URL` | Optional eve workflow store, supplied at build AND runtime. Changing it requires a rebuild and separate workflow-table bootstrap. |
+| `VITE_TLDRAW_LICENSE_KEY` | SPA build argument. Required for a working hosted canvas; changing it requires rebuilding the server image. |
 
-Fixed by the compose file, do not set: `EVE_URL`, `WEB_API_URL`, `KAN_DATA_DIR`, `PORT`.
+Compose fixes `EVE_URL`, `WEB_API_URL`, `KAN_DATA_DIR` and `PORT`. Don't override
+those in the panel. Keep eve unpublished; only the server receives a public
+route. The local overlay explicitly selects development storage and browser
+origin http://localhost:8787. `npm run stack:up` applies it for laptop use.
 
-## Deploying and day-to-day (UI)
+## Deployment procedure
 
-1. Dokploy → Projects → your project → the compose service → **Deploy**.
-2. **Deployments** tab: build logs for each deploy. **Logs** tab: running container
-   logs per service (`server`, `eve`).
-3. **Environment** tab: edit variables, then **redeploy** (variables are read at
-   container start; build args need a rebuild).
-4. **Domains** tab: point the hostname at service `server`, port `8787`, HTTPS
-   **off** (the tunnel terminates TLS), and add the same hostname as a Cloudflare
-   Tunnel public hostname targeting the VM's Traefik on `http://<vm>:80`.
+1. Merge/push reviewed code to **main**, wait for **Repository checks** to pass,
+   and record the intended Git commit SHA.
+2. Run `npm run mcp:check` with your own Dokploy key. Confirm the `Kan` project,
+   `kan` compose service, source branch, compose path and latest deployment status.
+   If this times out, resolve panel/network access before attempting a deploy.
+3. In Dokploy, configure the service's Git source as
+   `https://github.com/asierzapata/kan.git`, branch **main**, compose path
+   `./docker-compose.yml`. Check environment/build arguments before deploying.
+   The last recorded setup used `single-server`; changing the repo does not
+   change that panel setting. Verify it explicitly rather than assuming main
+   pushes are already live.
+4. Deploy staging first when available. In the compose **Deployments** tab, wait
+   for both images to build and the deployment to finish. **Logs** shows runtime
+   output for each service. Check both service health statuses.
+5. Verify `/healthz` on the app origin returns `{"ok":true}`. Sign in, create a
+   disposable canvas, edit, wait for sync and reload. Use a second authorized
+   member/browser for bidirectional sync. If agent configuration changed, send a
+   small real prompt and verify completion and its persisted canvas result.
+   A health probe or successful image build does not establish model inference.
+6. Deploy production from the same reviewed revision/configuration, then repeat
+   health and browser checks. Record the deployed revision and observed checks.
 
-Concrete instance:
+The current service uses a plain Git source. A push does not imply a deployment;
+inspect the service's webhook/auto-deploy configuration. Don't paste its private
+webhook URL or socket tickets into issues or chat. Apply environment edits with a
+redeploy; changes to build arguments need a rebuild.
 
-| Item                      | Value                                                                                                                                                       |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dokploy server            | `kan-prod` — Proxmox Debian VM, `192.168.1.75`, SSH user `kan`, Docker cleanup on                                                                           |
-| Project / compose service | project `Kan` → compose `kan` (app name `kan-se2scu`), source: git `https://github.com/asierzapata/kan.git`, branch `single-server`, `./docker-compose.yml` |
-| Public domain             | `https://app.getkan.dev` → service `server`, port 8787, HTTPS off                                                                                           |
-| Tunnel                    | Cloudflare Tunnel public hostname `app.getkan.dev` → `http://192.168.1.75:80`; zone SSL mode Full                                                           |
-| Data                      | Neon project `kan-prod` (`aws-eu-central-1`), databases `kan` and `kan_workflow`; R2 bucket `kan-prod-assets` (WEUR, private, bucket-scoped token)          |
+With the current tunnel arrangement, Dokploy **Domains** routes the hostname to
+service `server`, port `8787`, with HTTPS off on that internal route. Cloudflare's
+public hostname targets the VM's Traefik port 80; TLS terminates at Cloudflare.
+Do not copy that internal HTTP setting to a direct-public deployment.
 
-Things learned on the first deploy:
+## Instance inventory
 
-- The service uses the plain **git** source, not the GitHub app: the Dokploy host
-  could not resolve `api.github.com` (`getaddrinfo EAI_AGAIN`) and every GitHub-app
-  deploy failed before cloning. The repo is public so a plain clone on the VM works.
-  Consequence: pushes do not auto-deploy through the GitHub app; press **Deploy** or
-  add the service's webhook URL (Deployments tab) to the repo.
-- Both images build **on the VM** (about 4 minutes; 2.2 GB + 1.6 GB). Keep the disk
-  at 60 GB and Docker cleanup enabled.
-- `WORKFLOW_POSTGRES_URL` is intentionally **not set** yet: eve keeps its workflow
-  state on the `eve-data` volume. Setting it rebuilds eve with the Postgres world and
-  needs a one-time `@workflow/world-postgres` bootstrap against `kan_workflow`.
-- Spanish ISPs (Movistar, Vodafone, Orange, DIGI) block ranges of Cloudflare IPs
-  during LaLiga match windows. When `app.getkan.dev` times out at TCP connect from
-  home but works on mobile data, that is why; the VM is fine. Check the resolved IPs
-  on a block-list checker before debugging the deployment.
+These are last-recorded identifiers to locate resources, not live health claims.
+Recheck with your own access before acting; private IPs require the team's LAN
+or an owner-provided VPN route.
 
-## Operating it from an AI tool (MCP)
+| Resource | Last recorded value |
+| --- | --- |
+| Panel | https://dokploy.asierzapata.com |
+| Project / service | `Kan` / `kan`, app name `kan-se2scu` |
+| VM | `kan-prod`, Debian, `192.168.1.75`, SSH user `kan` |
+| App origin | https://app.getkan.dev |
+| Tunnel route | `app.getkan.dev` -> `http://192.168.1.75:80` |
+| Neon | Project `kan-prod`, `aws-eu-central-1`; databases `kan`, `kan_workflow` |
+| R2 | Private bucket `kan-prod-assets` (WEUR) |
+| Volumes | `kan-data` for server state, `eve-data` for local workflow state (Compose prefixes actual names) |
 
-`scripts/dokploy-mcp.mjs` starts the official `@dokploy/mcp` (pinned) against the
-panel, with a per-user key.
+The last recorded workflow setup uses the eve volume; `WORKFLOW_POSTGRES_URL`
+was unset. Don't switch storage worlds without planning workflow-state recovery.
+At the 17 October repository check, the MCP initialized but panel API requests
+timed out. Live branch configuration and deployment access therefore still need
+verification from a reachable network. See the diagnostics in [docs/MCP.md](docs/MCP.md).
 
-1. Dokploy → Settings → API Keys → create your own key.
-2. Put `DOKPLOY_API_KEY=...` in the root `.env.local` (never in a client config or chat).
-3. Register it:
-   - **Devin**: already configured in `.devin/mcp_config.json`.
-   - **Claude Code**: `claude mcp add dokploy -- node scripts/dokploy-mcp.mjs` (from the repo root).
-   - **Cursor**: `.cursor/mcp.json`:
-     ```json
-     {
-       "mcpServers": {
-         "dokploy": { "command": "node", "args": ["scripts/dokploy-mcp.mjs"] }
-       }
-     }
-     ```
+## Rollback
 
-The full Dokploy API is 500+ tools, so the script loads only the tags
-`project,environment,server,compose,domain,deployment,docker` (about 105 tools; no
-database or notification management). Override with `DOKPLOY_ENABLED_TAGS` and
-`DOKPLOY_URL` in `.env.local`.
+Keep the previous working commit SHA and configuration before a deployment.
+If the new release fails, stop it and select the previous reviewed Git revision
+in the service's source settings (or a temporary branch pinned to that commit),
+then deploy one instance and repeat health/browser checks. Use Dokploy's rollback
+only after checking which image/revision it restores. Don't assume it rolls back
+secrets, database migrations or volumes.
 
-Example prompts: "redeploy kan and tail the build log", "show the last 100 lines of
-the server container", "list the variables set on the kan compose service".
+Migrations are additive: don't delete migration rows or restore an old database
+just to match older application code. If a migration is incompatible with an old
+release, fix forward or execute a separately planned restore. Never delete
+`kan-data`/`eve-data` as a routine deployment repair.
 
-Keep `DOKPLOY_REDACT_ENV` at its default: the MCP then hides environment values from
-tool output. Never paste API keys into chat.
+## Backup and recovery
 
-## Scaling
+Canvas-level operator exports:
 
-Not supported beyond one live node. Horizontal scaling needs canvas-affine routing
-of `/sync` and `/api/web/*` plus a lease on the canvas checked by the write-behind
-flush. Redundancy is active-passive: a second VM, stopped, with state off-box in
-Neon and R2. See "Web backend" in `AGENTS.md`.
+```sh
+npm run backup:canvas -- <canvasId> /absolute/private/canvas.json
+npm run restore:canvas -- /absolute/private/canvas.json <targetWorkspaceId>
+```
+
+These load root `.env.local`. For a Postgres operation, set `DATABASE_URL` in a
+private environment; for local PGlite, stop the local server first and use an
+absolute `KAN_DATA_DIR`. Restore requires an existing target workspace and a
+canvas ID that is not already present. Files contain private canvas/chat data;
+keep them outside the checkout and don't upload them into reviews.
+
+A canvas export is not a complete disaster-recovery backup. Back up:
+
+- Postgres data and auth/membership tables using the database provider's backup
+  and restore controls; verify retention/recovery window on the actual plan.
+- R2 object bytes as well as asset metadata; use a retained object backup/copy
+  policy and verify objects can be restored. Local development assets live in
+  the server data directory instead.
+- The eve workflow volume (or separately configured workflow database). The
+  application database does not contain all workflow execution state.
+- Deployment configuration and secrets in the team's approved secret manager.
+
+For a consistent volume backup, stop writes/server/agent and back up the stopped
+volumes. Copying an active SQLite file without its WAL is not a consistent
+backup. After loss of the server's local hot store, rooms reseed from Postgres;
+unflushed SQLite changes are not guaranteed to survive disk loss.
+
+Test restoration into an isolated deployment with separate volumes/URLs/secrets.
+Verify login, membership, canvas contents, image downloads and workflow behavior
+before any production cutover. Keep the old system stopped for active-passive
+recovery: two live nodes against the same canvases are unsupported. Backup and
+restore commands are covered by isolated server tests; an actual infrastructure
+restore still needs an operator rehearsal.
+
+## Marketing site
+
+The landing site uses root `vercel.ts`, `.vercelignore`, `apps/site` and
+`api/waitlist.js`. It is independent of the application's Dokploy service.
+Vercel project/team membership is a separate invitation. Configure server-only
+`GOOGLE_SHEETS_WEBHOOK_URL` and `WAITLIST_WEBHOOK_SECRET` for the waitlist;
+`VITE_*` values are public browser build inputs.
+
+Use `npm run test -w @kan/site` and `npm run build -w @kan/site`, preview and
+verify the waitlist before publishing. The site's DMG is
+`apps/site/public/kan-alpha.dmg`, served at `/kan-alpha.dmg`; native release and
+Google Apps Script procedures are in [AGENTS.md](AGENTS.md). Old app deployment
+configuration should not replace this active site configuration.

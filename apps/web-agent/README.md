@@ -51,7 +51,9 @@ world those routes carry no authentication: keep `/.well-known/workflow/v1/flow`
 unreachable from outside (loopback delivery does not need the ingress) and read
 the package README's security section before exposing the agent.
 
-See the web README for queue and retry policy and WEB_MIGRATION.md for observed
-live-provider coverage. Live tests spend credits and must stay within the
-explicit budget. Report completed-step usage separately from billed
-infrastructure.
+See [the web README](../web/README.md) for queue/retry policy and
+[deployment guide](../../DEPLOY.md) for operations. `npm run test:smoke` checks
+the browser/server path without model inference. A successful agent health probe
+does not verify a paid model turn; exercise a real prompt separately when testing
+agent credentials. Root Turbo builds always rebuild this workspace: eve's build
+artifacts share `.eve/` with runtime state and are deliberately not cached.

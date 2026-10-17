@@ -14,7 +14,8 @@
     "packages/web-core"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=24 <25",
+    "npm": ">=11.6.0 <12"
   },
   "packageManager": "npm@11.6.0",
   "scripts": {
@@ -40,11 +41,18 @@
     "dev:stack": "node scripts/dev-stack.mjs",
     "stack:up": "KAN_PUBLIC_URL=http://localhost:8787 docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build -d",
     "stack:down": "KAN_PUBLIC_URL=http://localhost:8787 docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml down",
-    "stack:logs": "KAN_PUBLIC_URL=http://localhost:8787 docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml logs -f"
+    "stack:logs": "KAN_PUBLIC_URL=http://localhost:8787 docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml logs -f",
+    "test:repo": "node --test scripts/repo.test.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "test:smoke": "node scripts/web/smoke.mjs",
+    "mcp:check": "node scripts/dokploy-check.mjs",
+    "backup:canvas": "node --import tsx scripts/web/backup.mjs",
+    "restore:canvas": "node --import tsx scripts/web/restore.mjs"
   },
   "devDependencies": {
     "agent-browser": "0.39.0",
     "turbo": "^2.11.2",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "@modelcontextprotocol/sdk": "1.30.0"
   }
 }

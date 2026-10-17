@@ -14,7 +14,11 @@
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "!**/*.md"
+        "!**/*.md",
+        "$TURBO_ROOT$/apps/desktop/src/**",
+        "$TURBO_ROOT$/apps/desktop/tsconfig*.json",
+        "$TURBO_ROOT$/apps/server/src/**",
+        "$TURBO_ROOT$/scripts/**"
       ],
       "outputs": [
         "dist/**"
@@ -26,7 +30,11 @@
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "!**/*.md"
+        "!**/*.md",
+        "$TURBO_ROOT$/apps/desktop/src/**",
+        "$TURBO_ROOT$/apps/desktop/tsconfig*.json",
+        "$TURBO_ROOT$/apps/server/src/**",
+        "$TURBO_ROOT$/scripts/**"
       ],
       "outputs": []
     },
@@ -34,7 +42,15 @@
       "dependsOn": [
         "^build"
       ],
-      "outputs": []
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/apps/desktop/src/**",
+        "$TURBO_ROOT$/apps/desktop/tsconfig*.json",
+        "$TURBO_ROOT$/apps/server/src/**",
+        "$TURBO_ROOT$/scripts/**"
+      ]
     },
     "@kan/site#test": {
       "inputs": [
@@ -46,6 +62,20 @@
     "dev": {
       "cache": false,
       "persistent": true
+    },
+    "@kan/web-agent#build": {
+      "cache": false,
+      "outputs": [],
+      "passThroughEnv": [
+        "WORKFLOW_POSTGRES_URL",
+        "DATABASE_URL",
+        "WORKFLOW_POSTGRES_*"
+      ]
     }
-  }
+  },
+  "globalDependencies": [
+    ".env",
+    ".env.*",
+    "packages/*/src/**"
+  ]
 }

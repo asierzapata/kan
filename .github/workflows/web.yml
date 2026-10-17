@@ -1,29 +1,46 @@
-name: Web migration checks
+name: Repository checks
 on:
   pull_request:
-    paths:
-      - "apps/web/**"
-      - "apps/web-agent/**"
-      - "apps/server/**"
-      - "packages/**"
-      - "package*.json"
-      - ".github/workflows/web.yml"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  web:
+  checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
+      - run: npm install --global npm@11.6.0
       - run: npm ci
-      - run: npm run typecheck:web
-      - run: npm run typecheck -w @kan/web-agent
-      - run: npm run typecheck -w @kan/server
-      - run: npm run test -w @kan/server
-      - run: npm run typecheck -w @kan/desktop
-      - run: npm run test:web
-      - run: npm run test:desktop
-      - run: npm run build:web
-      - run: npm run build -w @kan/web-agent
+      - run: npm run check:docs
+      - run: npm run test:repo
+      - run: npm run typecheck
+      - run: npx turbo run test
+      - run: npm run build
+      - name: Validate laptop Compose configuration
+        run: KAN_PUBLIC_URL=http://localhost:8787 docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.local.yml config --quiet
+      - name: Validate production Compose configuration
+        env:
+          KAN_PUBLIC_URL: https://kan.example.test
+          KAN_SERVICE_SECRET: ci-placeholder-service-secret
+          BETTER_AUTH_SECRET: ci-placeholder-auth-secret-0123456789
+        run: docker compose config --quiet
+      - run: npx agent-browser install --with-deps
+      - run: npm run test:smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-smoke
+          path: /tmp/kan-smoke.png
+          if-no-files-found: ignore

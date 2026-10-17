@@ -121,13 +121,15 @@ repository's root `.env.local` without overriding variables already set.
 
 ## Backup and restore
 
-`node scripts/web/backup.mjs <canvasId> <out.json>` writes one canvas (records,
+`npm run backup:canvas -- <canvasId> <out.json>` writes one canvas (records,
 events, threads, runs, messages, assets and meeting data) with mode 0600.
-`node scripts/web/restore.mjs <in.json> <workspaceId>` imports it into a database
-where that canvas does not exist yet. Both need `DATABASE_URL`, print row counts
-only, and are operator tools. Backup exports include asset metadata but not
-object bytes.
+`npm run restore:canvas -- <in.json> <workspaceId>` imports it into a database
+where that canvas does not exist yet. Both load root `.env.local` and support
+`DATABASE_URL` or local PGlite under `KAN_DATA_DIR`. Stop the local server before
+opening its PGlite directory. The npm scripts supply the required `--import tsx`
+loader. They print row counts only. Exports include asset metadata, not object
+bytes; see [backup and recovery](../../DEPLOY.md#backup-and-recovery).
 
-See [WEB_MIGRATION.md](../../WEB_MIGRATION.md) for earlier acceptance evidence.
-Browser tests do not establish Tauri/native coverage. Live meetings, video and
+See [the root guide](../../README.md) for setup and `npm run test:smoke` for the
+repeatable browser check. Browser tests do not establish Tauri/native coverage. Live meetings, video and
 transcription belong to phase 2.

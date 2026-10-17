@@ -14,7 +14,7 @@ while IFS= read -r path; do
     apps/web/*|apps/web-agent/*|apps/server/*|packages/web-core/*)
       CHECK_WEB=1 ;;
     apps/desktop/*)
-      CHECK_DESKTOP=1 ;;
+      CHECK_DESKTOP=1; CHECK_WEB=1 ;;
     packages/*)
       # Shared by both sides, so a change here has to satisfy both.
       CHECK_DESKTOP=1; CHECK_WEB=1 ;;

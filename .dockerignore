@@ -31,3 +31,10 @@ data
 .idea
 **/.output
 **/.eve
+
+# Private QA reports and retired local experiments.
+qa_bugs
+spikes
+**/.vercel
+**/.nitro
+**/.tanstack

@@ -1,5 +1,8 @@
 # Kan — agent guide
 
+Teammate setup: [README.md](README.md). Current system: [ARCHITECTURE.md](ARCHITECTURE.md).
+Operations and MCP access: [DEPLOY.md](DEPLOY.md).
+
 Tauri 2 desktop app. React 19 + TypeScript, Vite, TanStack Router (file-based
 routes in `apps/desktop/src/routes`), tldraw for the infinite canvas, shadcn
 (`base-lyra`, remixicon) for UI primitives.
@@ -47,7 +50,7 @@ firing, you haven't run `npm install` since they landed.
 | Hook         | Runs                                                  | Cost      |
 | ------------ | ----------------------------------------------------- | --------- |
 | `pre-commit` | typecheck, **only the workspaces the commit touches** | seconds   |
-| `pre-push`   | `turbo` typecheck, `turbo` tests, `turbo` build       | ~10s warm |
+| `pre-push`   | `turbo` typecheck/tests/build, repository regressions and doc links       | ~10s warm |
 
 Both block on failure. Bypass with `git commit --no-verify` / `git push
 --no-verify`, or `KAN_SKIP_HOOKS=1` for both. Use the bypass when you are
@@ -64,7 +67,8 @@ Two things to know about them:
   warns loudly on an empty suite rather than letting it show green.
 
 Scoping lives in `.githooks/_scope.sh` and sets two flags. `apps/desktop/*`
-turns on the desktop check (`turbo` typecheck of `@kan/desktop`).
+turns on both desktop and web checks because the web stack imports desktop source.
+The desktop check runs `turbo` typecheck of `@kan/desktop`.
 `apps/web/*`, `apps/web-agent/*`, `apps/server/*` and `packages/web-core/*` turn
 on the web check, which typechecks `@kan/web`, `@kan/web-agent` and `@kan/server`.
 Any other `packages/*` change, and `package.json`, `package-lock.json` or
@@ -200,7 +204,7 @@ auth logout` / `codex logout` — which would log the user out of their terminal
 The agent never touches tldraw directly; it goes through the tool layer.
 
 - `schema.ts` — zod contract (`nodeDraft`, `addNodeInput`, … and `toolSchemas`).
-  This is what the future MCP server exposes; keep `.describe()` on fields.
+  The local MCP bridge and web agent reuse these contracts; keep `.describe()` on fields.
   Pure, no React/DOM imports. Will move to `packages/protocol`.
 - `draft.ts` — pure `draftToShapePartial` / `shapeToSummary` mapping. Reusable
   server-side. Will move to `packages/nodes`.
@@ -217,8 +221,10 @@ The agent never touches tldraw directly; it goes through the tool layer.
   preserved; the thread conversation simulator is gone. Drive tools with
   `node scripts/drive.mjs eval 'window.__kan.tools.getCanvas()'`.
 
-The rich node tools currently operate on offline desktop canvases; they are
-not wired into a server-side tool layer or a shared `kan-node` wire schema.
+The desktop tool layer operates directly on its editor. The web browser reuses
+the tools/renderers, while `apps/server/src/planner.ts` reuses the contracts and
+pure mapping to plan authorized room mutations. These rich shapes use their own
+registered shape types rather than a shared `kan-node` wire schema.
 The local Devin ACP path is wired to those offline tools through a loopback
 `kan-canvas` MCP bridge. The bridge is exposed only during an active prompt on
 the current offline canvas, validates every request with the same zod schemas,
@@ -334,7 +340,7 @@ node (consistent hash on the canvas id at the proxy) plus a lease/epoch on
   `cd apps/web-agent && npx eve build && PORT=3100 KAN_SERVICE_SECRET=… WEB_API_URL=http://localhost:8787/api/web AI_GATEWAY_API_KEY=… npx eve start --port 3100`,
   with the server's `EVE_URL=http://localhost:3100`. `WORKFLOW_POSTGRES_URL` (set at
   build/start) switches durable workflow state to `@workflow/world-postgres`.
-- **Tests.** `npm run test -w @kan/server` (65 tests: real HTTP/WS, genuine tldraw
+- **Tests.** `npm run test -w @kan/server` (real HTTP/WS, genuine tldraw
   pushes, PGlite, real Better Auth; no paid provider) and `npm run test:web`
   (web-core: meeting, migration, policy). End-to-end was driven with Playwright
   (not committed): sign up two users, create workspace and canvas, invite the
@@ -646,7 +652,7 @@ From the repo root, on an Apple Silicon Mac:
    `npm run preview -w @kan/site`, verify the download returns the real DMG (not
    HTML), and compare its SHA-256 with the staged file.
 5. Commit `apps/site/public/kan-alpha.dmg` together with any release/site changes,
-   then deploy the landing site through its Vercel project. Root `vercel.json`
+   then deploy the landing site through its Vercel project. Root `vercel.ts`
    builds `@kan/site` and publishes `apps/site/dist`. Only push or trigger the
    hosted deployment when explicitly asked; a local build is not a live deploy.
 

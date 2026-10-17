@@ -22,7 +22,7 @@ fi
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 
-staged=$(git diff --cached --name-only --diff-filter=ACMR)
+staged=$(git diff --cached --name-only --diff-filter=ACMRD)
 if [ -z "$staged" ]; then
   exit 0
 fi

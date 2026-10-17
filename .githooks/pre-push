@@ -26,6 +26,8 @@ if [ "$test_count" = 0 ]; then
   echo "pre-push: WARNING — no server test files found, nothing to run"
 fi
 npx turbo run test --output-logs=errors-only || failed="$failed turbo-test"
+npm run test:repo || failed="$failed repo-test"
+npm run check:docs || failed="$failed docs"
 
 echo "pre-push: build"
 npx turbo run build --output-logs=errors-only || failed="$failed build"

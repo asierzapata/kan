@@ -43,6 +43,7 @@
     "stack:logs": "KAN_PUBLIC_URL=http://localhost:8787 docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml logs -f"
   },
   "devDependencies": {
+    "agent-browser": "0.39.0",
     "turbo": "^2.11.2",
     "typescript": "~6.0.3"
   }

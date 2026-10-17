@@ -124,14 +124,15 @@ compiled fine and both rendered wrong.
 has the exact commands, the wait-for-ready loops, and the traps that have
 already cost time. The short version:
 
-- Default to the **driver**: `npm run tauri:drive`, wait for port 4445, then
-  `node scripts/drive.mjs snapshot | eval | clickText | fill | shot`. This is
-  the real WKWebView, so Tauri IPC, native menus and window behaviour are all
-  in scope, and the output is structured enough to assert on.
-- Use the **browser** (`npm run dev` + chrome-devtools MCP against
-  `http://localhost:1420`) only for quick CSS iteration. It cannot test Tauri
-  APIs, IPC, window behaviour or native plugins — say so rather than letting a
-  browser pass stand in for full coverage.
+- The target is the **web app**: start `KAN_DATA_DIR="$PWD/data/e2e" npm run
+  dev:server` and `npm run dev:web`, wait for `/healthz` and `:1430`, then drive
+  `http://localhost:1430` with `npx agent-browser open | snapshot -i | click |
+  fill | find role … | wait | eval | screenshot`. Always an absolute
+  `KAN_DATA_DIR`; a relative one lands in `apps/server/data/` and is not ignored.
+- `window.__kanWeb.tools` exposes the canvas tool layer in the browser;
+  `agent-browser --session <name>` gives a second user for sync checks.
+- The legacy desktop driver (`npm run tauri:drive` + `scripts/drive.mjs`, the
+  `scripts/*.e2e.mjs` regressions) still exists until the desktop app is removed.
 - **Read the server output before continuing.** A crash appears in the log and
   nowhere else.
 - Report what was actually observed. If a step was skipped, say so plainly.

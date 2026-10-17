@@ -27,19 +27,19 @@ deployed with [Dokploy](https://dokploy.asierzapata.com) onto a Debian VM.
 
 Set these on the compose service (Dokploy → Environment). Secrets never go in git.
 
-| Variable                                                                                                   | Required   | Source / notes                                                                                                                                  |
-| ---------------------------------------------------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KAN_PUBLIC_URL`                                                                                           | yes        | The public origin, exactly (e.g. `https://kan.example.com`, no trailing slash). Better Auth and the write-origin check compare against it.      |
-| `KAN_SERVICE_SECRET`                                                                                       | yes        | `openssl rand -hex 32`. Shared by `server` and `eve`.                                                                                           |
-| `BETTER_AUTH_SECRET`                                                                                       | yes        | `openssl rand -base64 32`. Changing it signs everyone out.                                                                                      |
-| `KAN_ENV`                                                                                                  | no         | Defaults to `production`, which makes `S3_BUCKET` and `KAN_RUN_CEILING` mandatory.                                                              |
-| `DATABASE_URL`                                                                                             | yes (prod) | Neon connection string. Unset falls back to embedded PGlite (development only).                                                                 |
-| `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | yes (prod) | R2: bucket, `https://<account>.r2.cloudflarestorage.com`, region `auto`, an API token's key pair.                                               |
-| `KAN_RUN_CEILING`                                                                                          | yes (prod) | Max stored agent runs; `0` is unlimited.                                                                                                        |
-| `KAN_CONTEXT_RUN_CAP`                                                                                      | no         | Automatic meeting-context runs per meeting (default 20).                                                                                        |
-| `AI_GATEWAY_API_KEY`                                                                                       | yes        | Vercel AI Gateway key for agent turns.                                                                                                          |
-| `WORKFLOW_POSTGRES_URL`                                                                                    | no         | Durable agent state in Postgres. A **build arg and a runtime var**: the workflow world is baked at `eve build`, so changing it needs a rebuild. |
-| `VITE_TLDRAW_LICENSE_KEY`                                                                                  | no         | Build arg for the SPA (baked into the bundle). Rebuild to change.                                                                               |
+| Variable                                                                                                   | Required   | Source / notes                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `KAN_PUBLIC_URL`                                                                                           | yes        | The public origin, exactly (e.g. `https://kan.example.com`, no trailing slash). Better Auth and the write-origin check compare against it.                                                       |
+| `KAN_SERVICE_SECRET`                                                                                       | yes        | `openssl rand -hex 32`. Shared by `server` and `eve`.                                                                                                                                            |
+| `BETTER_AUTH_SECRET`                                                                                       | yes        | `openssl rand -base64 32`. Changing it signs everyone out.                                                                                                                                       |
+| `KAN_ENV`                                                                                                  | no         | Defaults to `production`, which makes `S3_BUCKET` and `KAN_RUN_CEILING` mandatory.                                                                                                               |
+| `DATABASE_URL`                                                                                             | yes (prod) | Neon connection string. Unset falls back to embedded PGlite (development only).                                                                                                                  |
+| `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | yes (prod) | R2: bucket, `https://<account>.r2.cloudflarestorage.com`, region `auto`, an API token's key pair.                                                                                                |
+| `KAN_RUN_CEILING`                                                                                          | yes (prod) | Max stored agent runs; `0` is unlimited.                                                                                                                                                         |
+| `KAN_CONTEXT_RUN_CAP`                                                                                      | no         | Automatic meeting-context runs per meeting (default 20).                                                                                                                                         |
+| `AI_GATEWAY_API_KEY`                                                                                       | yes        | Vercel AI Gateway key for agent turns.                                                                                                                                                           |
+| `WORKFLOW_POSTGRES_URL`                                                                                    | no         | Durable agent state in Postgres. A **build arg and a runtime var**: the workflow world is baked at `eve build`, so changing it needs a rebuild.                                                  |
+| `VITE_TLDRAW_LICENSE_KEY`                                                                                  | yes (prod) | Build arg for the SPA (baked into the bundle). Rebuild to change. Without it tldraw unmounts the editor 5 s after load on any non-localhost host: the canvas shows "Connected" and nothing else. |
 
 Fixed by the compose file, do not set: `EVE_URL`, `WEB_API_URL`, `KAN_DATA_DIR`, `PORT`.
 
@@ -54,14 +54,32 @@ Fixed by the compose file, do not set: `EVE_URL`, `WEB_API_URL`, `KAN_DATA_DIR`,
    **off** (the tunnel terminates TLS), and add the same hostname as a Cloudflare
    Tunnel public hostname targeting the VM's Traefik on `http://<vm>:80`.
 
-Concrete instance (TODO, fill in after the first deploy):
+Concrete instance:
 
-| Item                      | Value |
-| ------------------------- | ----- |
-| Dokploy server            | TODO  |
-| Project / compose service | TODO  |
-| Public domain             | TODO  |
-| Tunnel name               | TODO  |
+| Item                      | Value                                                                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dokploy server            | `kan-prod` — Proxmox Debian VM, `192.168.1.75`, SSH user `kan`, Docker cleanup on                                                                           |
+| Project / compose service | project `Kan` → compose `kan` (app name `kan-se2scu`), source: git `https://github.com/asierzapata/kan.git`, branch `single-server`, `./docker-compose.yml` |
+| Public domain             | `https://app.getkan.dev` → service `server`, port 8787, HTTPS off                                                                                           |
+| Tunnel                    | Cloudflare Tunnel public hostname `app.getkan.dev` → `http://192.168.1.75:80`; zone SSL mode Full                                                           |
+| Data                      | Neon project `kan-prod` (`aws-eu-central-1`), databases `kan` and `kan_workflow`; R2 bucket `kan-prod-assets` (WEUR, private, bucket-scoped token)          |
+
+Things learned on the first deploy:
+
+- The service uses the plain **git** source, not the GitHub app: the Dokploy host
+  could not resolve `api.github.com` (`getaddrinfo EAI_AGAIN`) and every GitHub-app
+  deploy failed before cloning. The repo is public so a plain clone on the VM works.
+  Consequence: pushes do not auto-deploy through the GitHub app; press **Deploy** or
+  add the service's webhook URL (Deployments tab) to the repo.
+- Both images build **on the VM** (about 4 minutes; 2.2 GB + 1.6 GB). Keep the disk
+  at 60 GB and Docker cleanup enabled.
+- `WORKFLOW_POSTGRES_URL` is intentionally **not set** yet: eve keeps its workflow
+  state on the `eve-data` volume. Setting it rebuilds eve with the Postgres world and
+  needs a one-time `@workflow/world-postgres` bootstrap against `kan_workflow`.
+- Spanish ISPs (Movistar, Vodafone, Orange, DIGI) block ranges of Cloudflare IPs
+  during LaLiga match windows. When `app.getkan.dev` times out at TCP connect from
+  home but works on mobile data, that is why; the VM is fine. Check the resolved IPs
+  on a block-list checker before debugging the deployment.
 
 ## Operating it from an AI tool (MCP)
 

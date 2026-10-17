@@ -1,5 +1,5 @@
 import { AssistantResultSchema, CONTEXT_MAX_AGE_MS, CONTEXT_SETTLE_MS, DEFAULT_EAGERNESS, eagernessPacing, type AssistantEagerness, EntrySchema, explicitInvocation, type AssistantResult, type Entry, type Lease, type Mutation, type NodeDraft, type Trigger } from "@kan/protocol";
-import { toViewEntry, type RoomTransport, type SendInput, type RoomSnapshot } from "./room-transport";
+import { toViewEntry, type RoomTransport, type SendInput, type RoomSnapshot } from "./transport";
 import type { AssistantPreferences } from "./assistant-controller";
 import type { ThreadEntry } from "./thread";
 import { localThreadStorage, type LocalThreadStorage } from "./local-thread-store";
@@ -71,7 +71,7 @@ export function createLocalTransport(options: LocalTransportOptions): LocalTrans
       publish();
     };
     if (options.storage) { owner = true; await hydrate(); return; }
-    if (!globalThis.navigator?.locks) throw new Error("This webview cannot safely claim local work. Open an online canvas instead.");
+    if (!globalThis.navigator?.locks) throw new Error("This webview cannot safely claim local work.");
     await new Promise<void>((resolve, reject) => {
       void navigator.locks.request(`kan-assistant:${options.canvasId}`, { ifAvailable: true }, async (lock) => {
         owner = Boolean(lock);

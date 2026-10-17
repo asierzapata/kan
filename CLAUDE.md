@@ -4,9 +4,9 @@
 
 Compiling is not working. **Run the app and drive it** before calling any UI or
 frontend change done — use the `e2e` skill (`.agents/skills/e2e/`), which has
-the commands and the traps. Default to `npm run tauri:drive` +
-`node scripts/drive.mjs`; the browser path cannot test Tauri APIs, IPC or window
-behaviour.
+the commands and the traps. Start the web stack (`dev:server` with an absolute
+`KAN_DATA_DIR`, `dev:web`) and drive `http://localhost:1430` with
+`npx agent-browser`.
 
 If you skipped a check, say so instead of implying you ran it.
 

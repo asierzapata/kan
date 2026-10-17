@@ -4,7 +4,7 @@
  */
 import type { CanvasAnchor, Participant, ThreadEntry } from "./thread";
 import { PENDING_SEQ } from "./thread";
-import type { RoomTransport, SendInput } from "./room-transport";
+import type { RoomTransport, SendInput } from "./transport";
 
 const day = "2026-09-19";
 const at = (time: string) => `${day}T${time}+02:00`;
@@ -137,9 +137,7 @@ export const demoEntries: ThreadEntry[] = [
 /**
  * The fixtures behind the `RoomTransport` interface.
  *
- * Swapping this for `createWsTransport(roomId)` is the whole point: the demo
- * keeps working until the room server exists, and when it does the change is
- * one line in the route rather than a rewrite of the panel.
+ * Lets the thread panel render demo data without a canvas or an agent.
  */
 export function createMockTransport(includeDemo = false): RoomTransport {
   const listeners = new Set<(entry: ThreadEntry) => void>();

@@ -1,118 +1,233 @@
 ---
 name: e2e
-description: Launch and drive the Kan app to prove a change actually works. Use before claiming any UI or frontend feature is done, when asked to run/start/screenshot the app, to reproduce a bug, or to verify behaviour in the real Tauri window. Covers both the in-app WebDriver driver (real WKWebView, Tauri IPC) and the Chrome dev-server path, and says which to pick.
-user-invocable: true
+description: Launch and drive the Kan web app in a real Chrome with agent-browser to prove a change actually works. Use before claiming any UI, frontend or server-visible feature is done, when asked to run/start/screenshot the app, to reproduce a bug, or to verify sync and auth behaviour end to end.
 ---
 
 # Verifying a change in Kan
 
 **A feature is not done until it has been exercised end to end in a running app.**
-`tsc --noEmit` and `vite build` passing is not evidence that anything works —
-they only prove the code compiles.
+`tsc --noEmit`, `vite build` and the server test suite passing are not evidence
+that anything works — they only prove the code compiles and the backend answers
+in isolation.
 
-This rule exists because it has already failed here twice:
+This rule exists because it has already failed here: the tldraw integration
+type-checked and built cleanly while the dev server crashed on startup with 53
+unresolved-asset errors, and panel styling compiled fine and rendered wrong.
+Only a running app and a screenshot caught them.
 
-- The tldraw integration type-checked and built cleanly while `npm run dev`
-  crashed on startup with 53 unresolved-asset errors.
-- The thread panel's accent borders and active-tab styling both compiled fine
-  and both rendered wrong. Only a screenshot caught them.
+## The stack
 
-## Pick a path
+| Process | Command | Port | Ready when |
+| --- | --- | --- | --- |
+| Server (Hono + ws, PGlite) | `npm run dev:server` | 8787 | `curl -s localhost:8787/healthz` → `{"ok":true}` |
+| Web app (Vite, proxies `/api` and `/sync` to 8787) | `npm run dev:web` | 1430 (`strictPort`) | `curl -s -o /dev/null -w '%{http_code}' localhost:1430/` → `200` |
+| Agent (eve) — optional | `npm run dev:agent` | 3100 | only needed for real agent turns; requires `AI_GATEWAY_API_KEY` |
 
-| Situation | Path |
-| --- | --- |
-| Tauri APIs, IPC, native menus, window behaviour, plugins | **Driver** (only option) |
-| Asserting on app state, regression checks, anything repeatable | **Driver** |
-| Pure CSS/layout iteration where a Rust rebuild isn't worth it | Browser |
+The browser is **agent-browser** (Vercel), pinned as a root devDependency and run
+through `npx agent-browser`. First time on a machine: `npx agent-browser install`
+downloads Chrome for Testing (~7s). `npx agent-browser doctor --offline --quick`
+should report 0 fail.
 
-Default to the **driver**. It is the real WKWebView, it returns structured
-output you can assert on, and the scripts graduate into a test suite. Reach for
-the browser only to iterate quickly on styling.
+## 1. Start the stack (background) and wait for it
 
-## Driver path (preferred)
-
-The app embeds a W3C WebDriver server on `127.0.0.1:4445`, behind the
-`webdriver` Cargo feature so it can never reach a release bundle.
-
-### 1. Start it (background) and wait for the port
+Always use an **absolute** `KAN_DATA_DIR`. `npm run dev:server` runs inside
+`apps/server/`, so a relative `data/e2e` lands in `apps/server/data/e2e`, which is
+**not** gitignored and will show up in `git status`. The repo-root `/data/` is.
 
 ```bash
-npm run tauri:drive > /tmp/kan-tauri.log 2>&1   # run_in_background: true
+# from the repo root
+KAN_DATA_DIR="$PWD/data/e2e" npm run dev:server > /tmp/kan-e2e-server.log 2>&1 &
+npm run dev:web > /tmp/kan-e2e-web.log 2>&1 &
 ```
 
-Then block until it is actually up — **do not assume it booted**. The first
-Rust build takes minutes; later ones ~40s.
+If `:8787` or `:1430` is already taken, something of the user's is running —
+check with `lsof -nP -iTCP:8787 -sTCP:LISTEN` and **ask before killing it**.
+Reusing an already-running stack is fine; just don't assume it has your code.
+
+Block until both answer — **do not assume they booted**:
 
 ```bash
-# The Tauri CLI forces ANSI colour even when redirected, so strip it before
-# grepping — an anchored "^error" never matches a colourised error line and the
-# loop would spin for the full 8 minutes instead of failing fast.
-for i in $(seq 1 240); do
-  nc -z 127.0.0.1 4445 2>/dev/null && { echo PORT_OPEN; break; }
-  sed $'s/\033\[[0-9;]*m//g' /tmp/kan-tauri.log \
-    | grep -qE "^error(\[|:)|could not compile" && { echo BUILD_ERROR; break; }
-  sleep 2
+for i in $(seq 1 60); do
+  [ "$(curl -s localhost:8787/healthz)" = '{"ok":true}' ] &&
+  [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:1430/)" = 200 ] && { echo READY; break; }
+  grep -qiE "error|EADDRINUSE" /tmp/kan-e2e-server.log && { echo BOOT_ERROR; break; }
+  grep -q "EADDRINUSE" /tmp/kan-e2e-web.log && { echo BOOT_ERROR; break; }
+  sleep 1
 done
-tail -20 /tmp/kan-tauri.log
+tail -20 /tmp/kan-e2e-server.log /tmp/kan-e2e-web.log
 ```
 
-Check the result. A crash shows up in that log and nowhere else.
+Usually ready in ~3s. **Read the server log before continuing** — a crash shows
+up there and nowhere else. `ExperimentalWarning: SQLite is an experimental
+feature` on startup is noise, and so are `[vite] http proxy error …
+ECONNREFUSED` lines in the web log from before the server was up (that is why
+the loop doesn't grep the web log for `error`). Logs are overwritten with `>`
+on each start; if you restart only the server, stale lines stay in the old log.
+`/api/health` is 404 and `/health` returns the SPA; `/healthz` is the probe.
 
-### 2. Drive it
+`data/e2e` is a throwaway: accounts, workspaces and canvases accumulate there.
+`rm -rf data/e2e` (with the server stopped) resets it. Never point e2e runs at
+`data/server`, the user's dev data.
+
+## 2. Drive it
 
 ```bash
-node scripts/drive.mjs snapshot              # whole thread panel state at once
-node scripts/drive.mjs eval '<js expression>'
-node scripts/drive.mjs clickText 'Send'      # click a button/tab by label
-node scripts/drive.mjs click '<css>'
-node scripts/drive.mjs drag '<css>' 120 60   # pointer drag from element centre
-node scripts/drive.mjs fill '<css>' 'text'   # sets value the way React notices
-node scripts/drive.mjs shot /tmp/kan.png     # then Read the file
-node scripts/drive.mjs reload                # reset frontend state
+A="npx agent-browser"
+$A open http://localhost:1430          # launches Chrome, prints the page title
+$A wait "#signin-email"
+$A snapshot -i                         # interactive elements only, with @refs
 ```
 
-`snapshot` returns tabs + active state, every entry, button labels, composer
-value and footer counts in one call. Prefer it over a pile of `eval`s.
+`snapshot -i` prints the accessibility tree:
 
-Frontend edits hot-reload into the Tauri webview (it loads the Vite dev server),
-so you rarely need to restart. Rust edits trigger a rebuild automatically.
+```
+- textbox "Email" [required, ref=e6]
+- textbox "Password" [required, ref=e7]
+- button "Sign in" [ref=e4]
+- button "Create account" [ref=e5]
+```
 
-### 3. Stop it when done
-
-Use TaskStop on the background task.
-
-## Browser path
+Core commands (every action prints `✓ Done`):
 
 ```bash
-npm run dev > /tmp/kan-dev.log 2>&1   # background; port 1420, strictPort
+$A click @e5                            # by ref from the last snapshot
+$A click 'button[type=submit]'          # by CSS
+$A find role button click --name "Create canvas"   # by role + accessible name (most robust)
+$A fill "#action-name" "Smoke"          # clears + sets; React state updates, no `type` needed
+$A press Enter
+$A wait "#action-name"                  # selector
+$A wait --text "New canvas"             # visible text
+$A wait --url "**canvas=*"              # URL glob
+$A wait --fn "document.querySelector('.canvas-sync')?.textContent.includes('Connected')"
+$A get text ".canvas-sync"              # → Connected
+$A get url
+$A eval "JSON.stringify(window.__kanWeb.tools.getCanvas())"
+$A screenshot /tmp/kan-e2e.png          # then Read the file
+$A console                              # browser console
+$A errors                               # uncaught page errors
+$A network requests --type xhr,fetch --status 400-599
+$A reload
+$A close                                # closes the default session's browser
 ```
 
-Wait for the ready banner in the log, then drive `http://localhost:1420` with
-the chrome-devtools MCP tools (`navigate_page`, `take_snapshot`, `click`,
-`take_screenshot`), and check `list_console_messages` and
-`list_network_requests`. A page that renders can still be quietly 404ing.
+Default `wait` timeout is 25s. `--json` gives structured output on most commands.
 
-This does **not** cover Tauri APIs, IPC, window behaviour or native plugins.
-Say so explicitly rather than letting a browser pass stand in for it.
+### Golden path (sign up → workspace → canvas → node)
+
+The app is one route (`/`); auth state decides what renders. Element contract
+(`apps/web/src/components/SignIn.tsx`, `WebCatalog.tsx`, `routes/index.tsx`):
+
+| Screen | Elements |
+| --- | --- |
+| Signed out | `#signin-email`, `#signin-password`, submit "Sign in"; ghost "Create account" toggles sign-up (adds `#signin-name`, submit becomes "Create account"). Password ≥ 8 chars. |
+| Catalog | "New workspace" / "Create workspace" (empty state), "New canvas" / "Create canvas", `select#workspace`, "Members & invites", "Sign out" |
+| Dialog | `#action-name`, submit "Create workspace" / "Create canvas" / "Save name" / "Delete canvas" — **disabled until the field is non-empty** |
+| Canvas | URL `?canvas=<uuid>`, `.canvas-sync[role=status]` reads "Connected", `window.__kanWeb = { editor, tools }`, chat `textarea#prompt`, button "Send", `select[aria-label=Thread]` |
+
+```bash
+A="npx agent-browser"; EMAIL="e2e+$(date +%s)@example.test"
+$A open http://localhost:1430 && $A wait "#signin-email"
+$A find role button click --name "Create account"
+$A fill "#signin-name" "E2E User"
+$A fill "#signin-email" "$EMAIL"
+$A fill "#signin-password" password123
+$A click 'button[type=submit]'
+$A wait --text "New workspace"
+$A find role button click --name "New workspace"
+$A wait "#action-name" && $A fill "#action-name" E2E
+$A find role button click --name "Create workspace"
+$A wait --text "New canvas"
+$A find role button click --name "New canvas"
+$A wait "#action-name" && $A fill "#action-name" Smoke
+$A find role button click --name "Create canvas"
+$A wait --url "**canvas=*"
+$A wait --fn "document.querySelector('.canvas-sync')?.textContent.includes('Connected')"
+$A eval "JSON.stringify(window.__kanWeb.tools.addNode({draft:{type:'markdown',title:'Hello',body:'# Hi'}}))"
+$A eval "JSON.stringify(window.__kanWeb.tools.getCanvas().counts)"   # {"byType":{"markdown":1}}
+$A screenshot /tmp/kan-e2e-canvas.png
+```
+
+Use a fresh email per run; sign-up fails on a duplicate. To test an existing
+account, sign in with the same email/password instead.
+
+### Tool layer from the browser
+
+`window.__kanWeb.tools` is `createCanvasTools(editor)` — `addNode`, `updateNode`,
+`removeNodes`, `connectNodes`, `arrange`, `focusNodes`, `groupNodes`,
+`getCanvas`. Inputs are zod-parsed; the `addNode` input is
+`{ draft: { type, ... }, near?, at? }` — the draft is **nested**, a top-level
+`{type:'markdown'}` fails validation. `eval` returns values JSON-quoted, so wrap
+objects in `JSON.stringify(...)` or you get `[object Object]`.
+
+### Two users / sync
+
+Each `--session <name>` has its own cookies and browser:
+
+```bash
+$A --session two open "http://localhost:1430/?canvas=<id>"   # lands on sign-in
+# sign in there, then:
+$A --session two wait --fn "window.__kanWeb.tools.getCanvas().nodes.length===2"
+$A session list
+$A --session two close
+```
+
+Edits made in one session must appear in the other without a reload — that is
+the sync assertion. The first `open` of a new session launches another Chrome
+(~10s).
+
+### Chat without the agent
+
+With no eve on `:3100`, sending a prompt leaves the message at **Queued** and the
+server log fills with `server.dispatch_failed { name: 'TypeError' }` on retry —
+the dispatch fetch to `EVE_URL` is refused. That is the expected shape of "agent
+not running", not a bug in your change. Real agent turns need `npm run dev:agent`
+with `AI_GATEWAY_API_KEY` set in `.env.local`; say explicitly when a check ran
+without it.
+
+## 3. Stop when done
+
+```bash
+npx agent-browser close --all
+pkill -f "tsx watch src/main.ts"; kill $(lsof -tiTCP:1430 -sTCP:LISTEN)   # only if you started them
+```
+
+Killing only the `:8787` listener leaves the `tsx watch` parent alive, which
+is why the server is stopped by name.
+
+The agent-browser daemon exits by itself after an hour idle and drops cookies
+and tabs with it; a signed-in session will not survive that.
 
 ## Gotchas that have already bitten
 
-- **Click by label, not by CSS shape.** `button:last-of-type` matched the
-  header's *Close thread* button instead of the composer's *Send* and silently
-  unmounted the panel. Use `clickText`.
-- **A screenshot can lie mid-transition.** Triggers have `transition-all`, so a
-  shot taken right after a click can show a half-faded control that looks like a
-  contrast bug. Confirm with `getComputedStyle` before reporting one.
-- **chrome-devtools MCP won't attach** when a leftover Chrome holds the profile
-  lock at `~/.cache/chrome-devtools-mcp/`. It is a throwaway profile, not the
-  user's session — but **ask before killing processes**.
-- **`npm run dev` uses `strictPort`.** If 1420 is taken it fails rather than
-  picking another port.
+- **Refs go stale across dialogs.** `@e16` from a snapshot before a dialog opened
+  may point elsewhere after. Re-`snapshot -i` after any navigation or dialog
+  change, or use `find role button click --name` which doesn't depend on refs.
+- **`:has-text()` is not a selector here.** `button:has-text("Create")` →
+  `✗ Element not found`. Use `find role … --name` or a ref.
+- **`wait --load networkidle` never resolves.** The canvas page polls
+  `history` and `meeting` every 2s and holds a WebSocket. Wait on a selector,
+  text, URL or `--fn` instead.
+- **`network requests` is noisy** for the same reason; filter with `--type
+  xhr,fetch`, `--status 400-599`, `--filter <substr>`, or `--clear` first.
+- **`snapshot -i` on the canvas is ~100 lines** of tldraw toolbar. Scope it:
+  `snapshot -i -s "section.web-chat"`.
+- **A relative `KAN_DATA_DIR` pollutes `git status`** (see §1). Always `$PWD/…`.
+- **A screenshot can lie mid-transition.** Controls have `transition-all`; a
+  shot right after a click can show a half-faded state. Confirm with
+  `eval getComputedStyle(...)` before reporting a contrast bug.
+- **`npm run dev:web` uses `strictPort`.** If 1430 is taken it fails rather
+  than picking another port — check the log, don't wait on the port.
+- **A backend edit strands the open canvas.** `tsx watch` restarts the server
+  (back on `/healthz` in ~3s, data intact), but the room socket does not
+  reconnect through the Vite proxy: `.canvas-sync` sits on "Reconnecting…"
+  for 75s+ in every open session. `npx agent-browser reload` and wait for
+  "Connected" again. Frontend edits hot-reload into the open tab fine.
 - **Don't re-run the app to "check" a passing edit.** Re-verify only what the
   change could plausibly have broken.
 
 ## Report honestly
 
-State what you actually observed. If a step was skipped or a check didn't run,
-say so plainly instead of implying full coverage. If something failed, show the
-output.
+State what you actually observed, with the commands and their output. If a step
+was skipped or a check didn't run (no agent, no second user, no screenshot), say
+so plainly instead of implying full coverage. If something failed, show the
+output and the relevant lines from `/tmp/kan-e2e-server.log`.

@@ -1,40 +1,45 @@
-# room-server. The backend has no build step: @kan/protocol and @kan/nodes
-# export raw src/index.ts, and the server runs under tsx.
-FROM node:24-slim
+# apps/server: Hono + ws sync server, API, scheduler and the built web SPA.
+# The server has no build step and runs under tsx; the SPA is built in a
+# separate stage and copied to KAN_WEB_DIST.
+FROM node:24-slim AS web
+WORKDIR /app
+# VITE_* values are baked into the browser bundle at build time.
+ARG VITE_TLDRAW_LICENSE_KEY
+ENV VITE_TLDRAW_LICENSE_KEY=$VITE_TLDRAW_LICENSE_KEY
+COPY . .
+RUN npm ci && npm run build -w @kan/web
 
+FROM node:24-slim
 WORKDIR /app
 
-# Dependency layer, invalidated only by a package.json or the lockfile.
-# The sibling manifests have to be present even though -w skips installing
-# their deps: npm resolves the workspace graph before applying the filter.
+# Dependency layer. Sibling manifests have to be present even though -w skips
+# installing their deps: npm resolves the workspace graph first.
 COPY package.json package-lock.json ./
 COPY apps/desktop/package.json apps/desktop/
-COPY apps/room-server/package.json apps/room-server/
-COPY apps/agent-runner/package.json apps/agent-runner/
+COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
+COPY apps/web-agent/package.json apps/web-agent/
+COPY apps/site/package.json apps/site/
 COPY packages/protocol/package.json packages/protocol/
 COPY packages/nodes/package.json packages/nodes/
-
-# Scoping to the one workspace drops tldraw, Vite and the Tauri CLI: 136M
-# instead of 394M. NODE_ENV=production must stay below this line: set it here
-# and npm omits devDependencies, which is where tsx lives.
-#
-# npm 11.19 in this image blocks install scripts, so esbuild's postinstall is
-# skipped and warns loudly. That is survivable: the platform binary arrives via
-# @esbuild/* optionalDependencies and install.js is only a fallback. Verified by
-# running the image, not by reading the warning.
-RUN npm ci -w @kan/room-server --include-workspace-root
+COPY packages/web-core/package.json packages/web-core/
+RUN npm ci -w @kan/server --include-workspace-root
 
 COPY packages/protocol/src packages/protocol/src
 COPY packages/nodes/src packages/nodes/src
-COPY apps/room-server/src apps/room-server/src
+COPY packages/web-core/src packages/web-core/src
+COPY packages/web-core/migrations packages/web-core/migrations
+COPY apps/desktop/src apps/desktop/src
+COPY apps/server/src apps/server/src
+COPY apps/server/tsconfig.json apps/server/
+COPY --from=web /app/apps/web/dist apps/web/dist
 
 ENV NODE_ENV=production \
     KAN_DATA_DIR=/data \
     PORT=8787
 
-# The volume is created from this directory, so it inherits the ownership.
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 
 EXPOSE 8787
-CMD ["npx", "tsx", "apps/room-server/src/main.ts"]
+CMD ["npx", "tsx", "apps/server/src/main.ts"]

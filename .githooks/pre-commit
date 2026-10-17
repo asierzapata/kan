@@ -31,7 +31,7 @@ fi
 $staged
 SCOPE
 
-if [ "$CHECK_DESKTOP" = 0 ] && [ "$CHECK_BACKEND" = 0 ] && [ "$CHECK_WEB" = 0 ]; then
+if [ "$CHECK_DESKTOP" = 0 ] && [ "$CHECK_WEB" = 0 ]; then
   echo "pre-commit: no checked workspace touched, skipping"
   exit 0
 fi
@@ -44,14 +44,11 @@ if [ "$CHECK_DESKTOP" = 1 ]; then
     || failed="$failed @kan/desktop"
 fi
 
-if [ "$CHECK_BACKEND" = 1 ]; then
-  echo "pre-commit: typechecking backend"
-  npm run typecheck:backend --silent || failed="$failed backend"
-fi
-
 if [ "$CHECK_WEB" = 1 ]; then
+  echo "pre-commit: typechecking web, web-agent, server"
   npm run typecheck:web --silent || failed="$failed web"
   npm run typecheck -w @kan/web-agent --silent || failed="$failed web-agent"
+  npm run typecheck -w @kan/server --silent || failed="$failed server"
 fi
 
 if [ -n "$failed" ]; then

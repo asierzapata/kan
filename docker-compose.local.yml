@@ -1,0 +1,7 @@
+# Laptop overlay: embedded PGlite and local-disk assets, no Postgres or S3.
+#   npm run stack:up   (http://localhost:8787)
+services:
+  server:
+    environment:
+      KAN_ENV: development
+      KAN_PUBLIC_URL: http://localhost:8787

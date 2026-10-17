@@ -4,7 +4,7 @@ import { connect } from "./db.mjs";
 
 const [input, workspace] = process.argv.slice(2);
 if (!input || !workspace) {
-  console.error("Usage: node scripts/web/restore.mjs <in.json> <workspaceId>");
+  console.error("Usage: node --import tsx scripts/web/restore.mjs <in.json> <workspaceId>");
   process.exit(2);
 }
 const snapshot = JSON.parse(await readFile(input, "utf8"));

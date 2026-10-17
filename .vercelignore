@@ -21,10 +21,6 @@
 !apps/site/public/kan-alpha.dmg
 !apps/desktop
 !apps/desktop/package.json
-!apps/room-server
-!apps/room-server/package.json
-!apps/agent-runner
-!apps/agent-runner/package.json
 !packages
 !packages/nodes
 !packages/nodes/package.json
@@ -39,8 +35,6 @@
 !apps/desktop/src-tauri
 !apps/desktop/src-tauri/icons
 !apps/desktop/src-tauri/icons/source.png
-!apps/realtime
-!apps/realtime/package.json
 !packages/web-core
 !packages/web-core/**
 !packages/nodes/src

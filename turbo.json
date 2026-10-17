@@ -1,26 +1,46 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
-  "globalDependencies": ["tsconfig.backend.json"],
-  "globalEnv": ["TAURI_DEV_HOST"],
-  "globalPassThroughEnv": ["VITE_*"],
+  "globalEnv": [
+    "TAURI_DEV_HOST"
+  ],
+  "globalPassThroughEnv": [
+    "VITE_*"
+  ],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
-      "outputs": ["dist/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
     },
     "typecheck": {
-      "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
+      ],
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "outputs": []
     },
     "@kan/site#test": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/api/waitlist.js"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/api/waitlist.js"
+      ],
       "outputs": []
     },
     "dev": {

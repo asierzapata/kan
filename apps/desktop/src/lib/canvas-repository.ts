@@ -1,6 +1,7 @@
 export interface CanvasCatalogEntry {
   id: string;
   name: string;
+  /** `online` only appears on entries written before online rooms were removed. */
   mode: "offline" | "online";
   localPersistenceKey: string;
   roomId?: string;
@@ -12,19 +13,6 @@ export interface CanvasCatalogEntry {
   /** Data URL of the last preview rendered from this canvas, for the catalog. */
   thumbnail?: string;
   thumbnailUpdatedAt?: string;
-}
-
-export interface PublishJournal {
-  localCanvasId: string;
-  backendOrigin: string;
-  stage: "preparing" | "assets_uploaded" | "dispatched" | "completed";
-  name: string;
-  records?: unknown[];
-  assetMap?: Record<string, string>;
-  assetIds?: string[];
-  resultRoomId?: string;
-  resultRoomCode?: string;
-  updatedAt: string;
 }
 
 const DB_NAME = "kan-catalog";
@@ -157,36 +145,6 @@ export async function consumeCanvasInitialRecords(id: string): Promise<unknown[]
   return records;
 }
 
-export async function markCanvasOnline(
-  localCanvasId: string,
-  roomId: string,
-  roomCode?: string
-): Promise<CanvasCatalogEntry> {
-  const existing = await getCanvasEntry(localCanvasId);
-  const now = new Date().toISOString();
-  const updated: CanvasCatalogEntry = existing
-    ? {
-        ...existing,
-        mode: "online",
-        roomId,
-        roomCode: roomCode ?? existing.roomCode,
-        updatedAt: now,
-        lastOpenedAt: now,
-      }
-    : {
-        id: localCanvasId,
-        name: "Untitled Canvas",
-        mode: "online",
-        localPersistenceKey: `kan-room-${localCanvasId}`,
-        roomId,
-        roomCode,
-        createdAt: now,
-        updatedAt: now,
-        lastOpenedAt: now,
-      };
-  return saveCanvasEntry(updated);
-}
-
 /**
  * Previews are captured from a live editor, so they only exist for canvases
  * this device has actually opened. A miss is normal, never an error.
@@ -224,47 +182,6 @@ export async function deleteCanvasEntry(id: string): Promise<void> {
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error ?? new Error(`Failed to delete canvas ${id}`));
   });
-}
-
-export async function savePublishJournal(journal: PublishJournal): Promise<void> {
-  const db = await openCatalogDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(JOURNAL_STORE, "readwrite");
-    const store = tx.objectStore(JOURNAL_STORE);
-    const req = store.put(journal);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error ?? new Error("Failed to save publish journal"));
-  });
-}
-
-export async function getPublishJournal(localCanvasId: string): Promise<PublishJournal | null> {
-  try {
-    const db = await openCatalogDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(JOURNAL_STORE, "readonly");
-      const store = tx.objectStore(JOURNAL_STORE);
-      const req = store.get(localCanvasId);
-      req.onsuccess = () => resolve((req.result as PublishJournal) ?? null);
-      req.onerror = () => reject(req.error ?? new Error("Failed to get publish journal"));
-    });
-  } catch {
-    return null;
-  }
-}
-
-export async function clearPublishJournal(localCanvasId: string): Promise<void> {
-  try {
-    const db = await openCatalogDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(JOURNAL_STORE, "readwrite");
-      const store = tx.objectStore(JOURNAL_STORE);
-      const req = store.delete(localCanvasId);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error ?? new Error("Failed to clear publish journal"));
-    });
-  } catch {
-    // Ignore cleanup failure
-  }
 }
 
 /**

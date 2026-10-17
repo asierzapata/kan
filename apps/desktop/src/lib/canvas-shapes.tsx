@@ -1,7 +1,7 @@
 /**
  * Client-side rendering for the custom canvas node.
  *
- * The *schema* lives in `packages/nodes` because the room server validates
+ * The *schema* lives in `packages/nodes` because the shared tool layer validates
  * records against it too, and a disagreement between the two sides makes the
  * sync layer reject the record with `INVALID_RECORD`. This file only adds the
  * React half: it imports `kanShapeProps` rather than restating it, so there is

@@ -5,12 +5,8 @@ import {
   createOfflineCanvas,
   getCanvasEntry,
   listLocalCanvases,
-  markCanvasOnline,
   touchCanvas,
   deleteCanvasEntry,
-  savePublishJournal,
-  getPublishJournal,
-  clearPublishJournal,
 } from "../src/lib/canvas-repository";
 
 beforeEach(() => {
@@ -44,48 +40,6 @@ test("canvas catalog lifecycle and ordering", async (t) => {
   await touchCanvas(c1.id);
   const updatedList = await listLocalCanvases();
   assert.equal(updatedList[0].id, c1.id);
-});
-
-test("mark canvas online transitions mode and links room", async () => {
-  clearMockIndexedDB();
-  const c = await createOfflineCanvas({ name: "Draft Diagram" });
-  assert.equal(c.mode, "offline");
-  assert.equal(c.roomId, undefined);
-
-  const onlineRoomId = crypto.randomUUID();
-  const online = await markCanvasOnline(c.id, onlineRoomId, "7K2M9-XP4TR");
-  assert.equal(online.mode, "online");
-  assert.equal(online.roomId, onlineRoomId);
-  assert.equal(online.roomCode, "7K2M9-XP4TR");
-
-  // Lookup by roomId also works
-  const retrieved = await getCanvasEntry(onlineRoomId);
-  assert.ok(retrieved);
-  assert.equal(retrieved.id, c.id);
-  assert.equal(retrieved.mode, "online");
-});
-
-test("publish journal persistence and clearing", async () => {
-  clearMockIndexedDB();
-  const canvasId = crypto.randomUUID();
-
-  assert.equal(await getPublishJournal(canvasId), null);
-
-  await savePublishJournal({
-    localCanvasId: canvasId,
-    backendOrigin: "http://localhost:8787",
-    stage: "preparing",
-    name: "My Canvas",
-    updatedAt: new Date().toISOString(),
-  });
-
-  const journal = await getPublishJournal(canvasId);
-  assert.ok(journal);
-  assert.equal(journal.stage, "preparing");
-  assert.equal(journal.name, "My Canvas");
-
-  await clearPublishJournal(canvasId);
-  assert.equal(await getPublishJournal(canvasId), null);
 });
 
 test("delete canvas entry removes from catalog", async () => {

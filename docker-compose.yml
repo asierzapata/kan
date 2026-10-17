@@ -1,46 +1,78 @@
+# Production-shaped stack: the Kan server (API, sync, SPA, scheduler) and the
+# eve agent. Run with an env file (see .env.example):
+#   docker compose --env-file .env.local up --build -d
+# For a laptop with no Postgres or S3, add docker-compose.local.yml.
 services:
-  room-server:
-    build: .
+  server:
+    build:
+      context: .
+      args:
+        VITE_TLDRAW_LICENSE_KEY: ${VITE_TLDRAW_LICENSE_KEY:-}
     init: true
     restart: unless-stopped
     stop_grace_period: 30s
+    ports:
+      - "8787:8787"
     environment:
       KAN_DATA_DIR: /data
       PORT: 8787
-      # The desktop client's origins. Overriding this without keeping the
-      # tauri:// entries would lock the app out of its own server.
-      KAN_ALLOWED_ORIGINS: "tauri://localhost,http://tauri.localhost,http://localhost:1420"
-      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
-      VONAGE_APPLICATION_ID: ${VONAGE_APPLICATION_ID:-}
-      # Base64 of the PEM. The raw key is multi-line and would be mangled by
-      # the env-var field it is pasted into; `normalizePrivateKey` decodes it.
-      VONAGE_PRIVATE_KEY: ${VONAGE_PRIVATE_KEY:-}
+      KAN_ENV: ${KAN_ENV:-production}
+      KAN_PUBLIC_URL: ${KAN_PUBLIC_URL:?set KAN_PUBLIC_URL}
+      KAN_SERVICE_SECRET: ${KAN_SERVICE_SECRET:?set KAN_SERVICE_SECRET}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      DATABASE_URL: ${DATABASE_URL:-}
+      EVE_URL: http://eve:3000
+      KAN_RUN_CEILING: ${KAN_RUN_CEILING:-}
+      KAN_CONTEXT_RUN_CAP: ${KAN_CONTEXT_RUN_CAP:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
     volumes:
       - kan-data:/data
+    depends_on:
+      eve:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 15s
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
+  eve:
+    build:
+      context: .
+      dockerfile: apps/web-agent/Dockerfile
+      args:
+        WORKFLOW_POSTGRES_URL: ${WORKFLOW_POSTGRES_URL:-}
     init: true
-    pull_policy: always
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN:?set CF_TUNNEL_TOKEN in Dokploy}
-    depends_on:
-      room-server:
-        condition: service_healthy
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    environment:
+      PORT: 3000
+      KAN_SERVICE_SECRET: ${KAN_SERVICE_SECRET:?set KAN_SERVICE_SECRET}
+      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
+      WEB_API_URL: http://server:8787/api/web
+      WORKFLOW_POSTGRES_URL: ${WORKFLOW_POSTGRES_URL:-}
+    volumes:
+      - eve-data:/app/apps/web-agent/.eve/.workflow-data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/eve/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
 
 volumes:
   kan-data:
+  eve-data:

@@ -8,11 +8,16 @@ node_modules
 dist
 **/dist
 
-# The frontend is not in this image. src-tauri in particular carries a Rust
-# target/ dir that dwarfs everything else.
+# The desktop shell is not in this image, but the server and web build import
+# apps/desktop/src. src-tauri carries a Rust target/ dir that dwarfs everything.
 apps/desktop/src-tauri
 apps/desktop/public
-apps/desktop/src
+
+# Never bake local secrets into an image layer.
+.env
+.env.*
+!.env.example
+**/.env.local
 
 # Local SQLite lives on a volume, never in the image.
 data
@@ -24,3 +29,5 @@ data
 .DS_Store
 .vscode
 .idea
+**/.output
+**/.eve

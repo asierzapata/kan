@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "dokploy": {
+      "command": "node",
+      "args": ["scripts/dokploy-mcp.mjs"],
+      "transport": "stdio"
+    }
+  }
+}

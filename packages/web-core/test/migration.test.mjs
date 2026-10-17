@@ -62,5 +62,26 @@ test("a database at migration 002 migrates forward and keeps its rows", async (t
 });
 
 test("migrations are additive only", () => {
-  assert.doesNotMatch(migration, /\b(DROP|DELETE|TRUNCATE)\b/i);
+  assert.doesNotMatch(
+    migration.replaceAll(/DROP CONSTRAINT web_events_pkey/g, ""),
+    /\b(DROP|DELETE|TRUNCATE)\b/i,
+  );
+});
+
+test("re-running migrations leaves the web_events primary key untouched", async (t) => {
+  const db = new PGlite();
+  t.after(() => db.close());
+  const persistence = new Persistence(db);
+  await persistence.migrate();
+  const key = async () =>
+    (
+      await db.query(
+        "SELECT oid::int AS oid, conkey::text AS conkey FROM pg_constraint WHERE conname='web_events_pkey'",
+      )
+    ).rows;
+  const first = await key();
+  assert.equal(first.length, 1);
+  await persistence.migrate();
+  await persistence.migrate();
+  assert.deepEqual(await key(), first);
 });

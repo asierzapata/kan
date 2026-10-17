@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useAuth } from "@workos/authkit-tanstack-react-start/client";
+import { useAuth } from "../lib/auth";
 import { lazy, Suspense, useEffect, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import { KanBrand } from "@/components/KanBrand";
 import { Spinner } from "@/components/ui/spinner";
 import { AgentMarkdown } from "@/components/thread/AgentMarkdown";
 import { WebCatalog } from "../components/WebCatalog";
+import { SignIn } from "../components/SignIn";
 import { WorkspacePanels } from "../../../desktop/src/components/WorkspacePanels";
 import "../web.css";
 const Canvas = lazy(async () => {
@@ -324,19 +325,7 @@ export function WebApp() {
               Bring your ideas, conversations, and Kan together on one living
               canvas.
             </p>
-            <Button
-              render={
-                <a
-                  href={
-                    mounted && new URL(location.href).searchParams.has("invite")
-                      ? `/api/auth/sign-in?invite=${encodeURIComponent(new URL(location.href).searchParams.get("invite")!)}`
-                      : "/api/auth/sign-in"
-                  }
-                />
-              }
-            >
-              Sign in to Kan
-            </Button>
+            <SignIn />
           </div>
           <div className="web-welcome-preview" aria-hidden="true">
             <span className="web-preview-note">A thought worth exploring</span>
@@ -765,7 +754,7 @@ export function WebApp() {
         )}
         <Button
           variant="ghost"
-          onClick={() => void signOut({ returnTo: window.location.origin })}
+          onClick={() => void signOut()}
         >
           Sign out
         </Button>

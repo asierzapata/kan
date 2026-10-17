@@ -5,7 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { randomUUID } from "node:crypto";
 import { Persistence } from "../src/persistence.mjs";
 import { migration } from "../src/migration.mjs";
-import { enqueue, dispatch } from "../../../apps/web/src/lib/runs.ts";
+import { enqueue, dispatch } from "../../../apps/server/src/runs.ts";
 import {
   startMeeting,
   ingestSegments,
@@ -14,7 +14,7 @@ import {
   readMeetingContext,
   CONTEXT_SETTLE_MS,
   CONTEXT_MAX_WAIT_MS,
-} from "../../../apps/web/src/lib/meeting.ts";
+} from "../../../apps/server/src/meeting.ts";
 
 const T0 = 1_800_000_000_000;
 async function fixture(t) {

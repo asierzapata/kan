@@ -3,10 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "eve dev",
+    "start": "eve start",
     "build": "eve build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "eve": "0.71.0"
+    "@workflow/world-postgres": "5.0.1",
+    "eve": "0.71.0",
+    "just-bash": "3.6.0"
   }
 }

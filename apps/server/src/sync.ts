@@ -13,10 +13,11 @@ export interface SyncOptions {
 export function attachSync(server: Server, opts: SyncOptions) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   server.on("upgrade", async (req, socket, head) => {
-    const reject = () => {
-      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    const deny = (status: string) => {
+      socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
       socket.destroy();
     };
+    const reject = () => deny("401 Unauthorized");
     try {
       const url = new URL(req.url ?? "", "http://localhost");
       if (url.pathname !== "/sync") return reject();
@@ -25,6 +26,11 @@ export function attachSync(server: Server, opts: SyncOptions) {
       const claims = verifyTicket(opts.secret, url.searchParams.get("ticket") ?? "");
       const access = await opts.authorize(claims);
       if (access.role !== claims.role) return reject();
+      try {
+        await opts.rooms.open(claims.room);
+      } catch {
+        return deny("503 Service Unavailable");
+      }
       wss.handleUpgrade(req, socket, head, (ws) => {
         opts.rooms
           .connect(claims.room, ws, {

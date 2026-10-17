@@ -47,6 +47,21 @@ test("a valid ticket connects and receives the tldraw connect response", async (
   assert.equal(message.isReadonly, false);
 });
 
+test("a connect sent while the room is still loading from Postgres is answered", async (t) => {
+  const s = await setup(t);
+  const load = s.f.persistence.load.bind(s.f.persistence);
+  s.f.persistence.load = async (...args: Parameters<typeof load>) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return load(...args);
+  };
+  const c = client(s.url(s.ticket()));
+  t.after(() => c.ws.close());
+  await c.opened;
+  c.send(connectMessage());
+  const message = await c.next("connect");
+  assert.equal(message.isReadonly, false);
+});
+
 test("viewer tickets connect read-only", async (t) => {
   const s = await setup(t, "viewer");
   const c = client(s.url(s.ticket({ role: "viewer" })));

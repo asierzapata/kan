@@ -43,15 +43,24 @@ try {
     const projects = await call("project-all");
     console.log("Panel API reachable; authorized project inventory retrieved.");
     const entries = objects(projects);
-    const candidates = entries.filter((item) => item.composeId && item.appName);
+    // project.all returns service summaries without appName. Resolve each
+    // visible compose by ID before matching its deployment app name.
+    const candidateIds = [...new Set(entries.filter((item) => item.composeId).map((item) => item.composeId))];
     const expected = process.env.KAN_DOKPLOY_APP_NAME || "kan-se2scu";
-    const compose = candidates.find((item) => item.appName === expected);
-    if (!compose) throw Error(`Expected compose service not found (${expected}); ask the project owner to check membership and service name.`);
-    const response = await call("compose-one", { composeId: compose.composeId });
-    const details = objects(response).find((item) => item.composeId === compose.composeId);
-    if (!details) throw Error("compose-one: unexpected service response; inspect the panel directly");
+    console.log(`Visible compose services: ${candidateIds.length}.`);
+    let details;
+    for (const composeId of candidateIds) {
+      const response = await call("compose-one", { composeId });
+      const candidate = objects(response).find((item) => item.composeId === composeId && item.appName);
+      if (!candidate) throw Error("compose-one: unexpected service response; inspect the panel directly");
+      if (candidate.appName === expected) {
+        details = candidate;
+        break;
+      }
+    }
+    if (!details) throw Error(`Expected compose service not found (${expected}); ask the project owner to check membership and service name.`);
     console.log(JSON.stringify(pick(details, ["name", "appName", "composeId", "sourceType", "branch", "customGitBranch", "composePath", "composeStatus"]), null, 2));
-    const deployments = await call("deployment-allByCompose", { composeId: compose.composeId });
+    const deployments = await call("deployment-allByCompose", { composeId: details.composeId });
     console.log("Recent deployments:", JSON.stringify(objects(deployments).filter((item) => item.deploymentId)
       .slice(0, 5).map((item) => pick(item, ["deploymentId", "status", "createdAt"]))));
   }
